@@ -1,0 +1,5 @@
+Shift,Category,Start_Time,End_Time
+Morning Shift,Regular Hours,08:00,17:00
+Morning Shift,OT Hours,17:00,19:00
+Evening Shift,Regular Hours,23:00,08:00
+Evening Shift,OT Hours,N/A,N/A
