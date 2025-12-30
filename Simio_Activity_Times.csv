@@ -1,0 +1,8 @@
+Activity,Time_min,Unit,Description
+Walking,1,min/100m,Walking time in FPA
+Check_and_Pick,0.4,min/line,Check and pick part
+Pick_per_Box,0.1,min/box,Time per box
+Replenishment_Normal,15,min/trip,Normal replenishment (min-max)
+Replenishment_Emergency,120,min/trip,Emergency container open
+Start_Stop_Cart,0.2,min/stop,Cart stop/start time
+Scan,0.083,min/scan,Barcode scan time

@@ -67,7 +67,7 @@ cat("Total capacity:", total_cabinet_volume, "m³\n\n")
 # --- Step 8-13: Scenario calculation ---
 df <- df[order(-df$Viscosity), ]
 
-total_constant <- 48.47
+total_constant <- 36.0  # พื้นที่ FPA = 36.0 m³ ตามโจทย์
 s_constant <- 2
 Cr_constant <- 15
 
@@ -273,6 +273,7 @@ position_tracker <- list()
 
 allocation_list <- list()
 unallocated_skus <- c()
+backfill_count <- 0  # เพิ่มตัวแปรนับการ backfill
 
 cat("=== PHASE 1: PRIMARY ALLOCATION ===\n")
 # First pass: Allocate primary SKUs

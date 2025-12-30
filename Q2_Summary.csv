@@ -1,0 +1,11 @@
+Parameter,Value
+FPA Volume (m³),36
+Time Saved per Pick (min),2
+Replenishment Time (min),15
+Optimal Number of SKUs,159
+Total SKUs Available,722
+Percentage Selected,22.02
+Total Pick Frequency (lines/year),205575
+Total Demand Volume (m³/year),3721.19
+Maximum Total Benefit (min/year),294593.45
+Benefit in Hours/Year,4909.89
