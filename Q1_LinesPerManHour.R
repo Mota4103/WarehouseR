@@ -74,28 +74,61 @@ shipTrans_small[, ShippingDay := as.Date(as.character(ShippingDay), "%Y%m%d")]
 shipTrans_small[, YearMonth := format(ShippingDay, "%Y%m")]
 
 ### =========================
-### STEP 5: พารามิเตอร์แรงงาน
+### STEP 5: พารามิเตอร์แรงงาน (Man-Hours Calculation)
 ### =========================
-# จากเอกสาร: พนักงานหยิบชิ้นส่วนขนาดเล็ก 80 คน
+
+# จำนวนพนักงาน (จากเอกสาร)
 num_workers <- 80
 
-# มี 2 กะทำงาน:
-# - Morning Shift: 08:00-17:00 (9 ชม.) + OT 17:00-19:00 (2 ชม.)
-# - Evening Shift: 23:00-08:00 (9 ชม.)
+# โครงสร้างกะทำงาน (จาก Shift.txt):
+# +------------------+-------------+----------+---------+
+# | กะ               | เวลา        | ชั่วโมง   | พัก     |
+# +------------------+-------------+----------+---------+
+# | Morning (Regular)| 08:00-17:00 | 9 ชม.    | 1 ชม.   |
+# | Morning (OT)     | 17:00-19:00 | 2 ชม.    | -       |
+# | Evening          | 23:00-08:00 | 9 ชม.    | 1 ชม.   |
+# +------------------+-------------+----------+---------+
 #
-# แต่พนักงานใช้เวลาส่วนใหญ่ในกิจกรรมอื่น (ตามรูปที่ 8):
-# - ตรวจสอบ Picking List, ค้นหาใน WMS (59% ของเวลา)
-# - เดิน, จัดเรียง, สแกน, พันฟิล์ม
-# ดังนั้น เวลาหยิบจริง (Effective Picking Hours) ≈ 2.3 ชม./คน/วัน
-effective_hours_per_worker <- 2.3
+# หมายเหตุเรื่องพัก:
+# - ทุกกะมี 1 ชม. สำหรับพักเที่ยงและพักส่วนตัว
+# - พนักงานจัดเวลาพักเองได้ภายใน 1 ชม.
+# - หัวหน้างาน (Supervisor) จะทำงานแทนระหว่างพัก
+# - ดังนั้น ไม่กระทบประสิทธิภาพโดยรวม
 
-# ชั่วโมงแรงงานต่อวัน (Effective Man-Hours)
-man_hours_per_day <- num_workers * effective_hours_per_worker
+# การคำนวณ Man-Hours จากโครงสร้างกะ:
+# -----------------------------------------------
+# จาก Shift.txt มี 2 กะ:
+#   - Morning: 08:00-17:00 = 9 ชม.
+#   - Evening: 23:00-08:00 = 9 ชม.
+#
+# จากการวิเคราะห์ DeliveryTime ใน shipTrans:
+#   - Morning shift: ~50% ของ picks (293,784 lines)
+#   - Evening shift: ~50% ของ picks (290,166 lines)
+#   = แบ่งเท่าๆ กัน ดังนั้น workers น่าจะแบ่ง 2 กะเท่ากัน
+#
+# การคำนวณ:
+#   - 80 workers รวม / 2 กะ = 40 workers ต่อกะ
+#   - แต่ละกะ: 9 ชม. - 1 ชม. พัก = 8 ชม. effective
+#   - Man-hours ต่อกะ = 40 × 8 = 320 ชม.
+#   - รวม 2 กะ = 320 × 2 = 640 ชม./วัน
+
+num_shifts <- 2         # Morning + Evening
+shift_hours <- 9        # จาก Shift.txt
+break_hours <- 1        # พัก 1 ชม. ต่อกะ
+effective_hours_per_shift <- shift_hours - break_hours  # = 8 ชม.
+workers_per_shift <- num_workers / num_shifts  # = 40 คน
+
+# ชั่วโมงแรงงานต่อวัน (Man-Hours)
+man_hours_per_shift <- workers_per_shift * effective_hours_per_shift  # = 320 ชม.
+man_hours_per_day <- man_hours_per_shift * num_shifts  # = 640 ชม.
 
 cat("พารามิเตอร์แรงงาน:\n")
-cat("  - จำนวนพนักงานหยิบชิ้นส่วนขนาดเล็ก: ", num_workers, " คน\n", sep="")
-cat("  - เวลาหยิบจริงต่อคนต่อวัน (Effective): ", effective_hours_per_worker, " ชม.\n", sep="")
-cat("  - Effective Man-hours ต่อวัน: ", man_hours_per_day, " ชม.\n\n", sep="")
+cat("  - จำนวนพนักงานรวม: ", num_workers, " คน\n", sep="")
+cat("  - จำนวนกะ: ", num_shifts, " กะ (Morning + Evening)\n", sep="")
+cat("  - พนักงานต่อกะ: ", workers_per_shift, " คน\n", sep="")
+cat("  - ชั่วโมงต่อกะ (หักพัก): ", effective_hours_per_shift, " ชม.\n", sep="")
+cat("  - Man-hours ต่อกะ: ", man_hours_per_shift, " ชม.\n", sep="")
+cat("  - Total Man-hours ต่อวัน: ", man_hours_per_day, " ชม.\n\n", sep="")
 
 ### =========================
 ### STEP 6: วิเคราะห์รายวัน

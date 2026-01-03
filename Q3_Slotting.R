@@ -715,96 +715,137 @@ cat("  - Saved: Q3_position_utilization.csv\n")
 ### =========================
 cat("\nCreating visualizations...\n")
 
+# Layout coordinates to match dataguide.md:
+#          Column 1              Column 2
+#         ___________    |      ___________
+#  Row 4: [19][20][21]   |      [22][23][24]   <- Top
+#                        |
+#         ~~~~~~~ AISLE ~|~ AISLE ~~~~~~~
+#         ___________    |      ___________
+#  Row 3: [13][14][15]   |      [16][17][18]
+#         ___________    |      ___________    <- BACK-TO-BACK
+#  Row 2: [7] [8] [9]    |      [10][11][12]
+#                        |
+#         ~~~~~~~ AISLE ~|~ AISLE ~~~~~~~
+#         ___________    |      ___________
+#  Row 1: [1] [2] [3]    |      [4] [5] [6]    <- Bottom (start)
+
 # 1. Multi-SKU Layout View (4 rows × 2 columns × 3 cabinets)
 assigned_skus <- slotting_assigned
 
-# Calculate proper x/y coordinates for 4x2x3 layout
-assigned_skus[, PlotX := (CabCol - 1) * (3 * cabinet_spacing + aisle_gap) +
-                         (CabPosInRow - 1) * cabinet_spacing + SubPosStart_m]
-assigned_skus[, PlotXEnd := (CabCol - 1) * (3 * cabinet_spacing + aisle_gap) +
-                            (CabPosInRow - 1) * cabinet_spacing + SubPosEnd_m]
-assigned_skus[, PlotY := CabRow]
+# X: Column 1 = 0-6, Aisle gap, Column 2 = 8-14
+# Y: Row 1 at bottom (y=1), Row 4 at top (y=10)
+#    With aisles between Row 1-2 and Row 3-4
 
-# Create labels for cabinet positions
+# Y coordinates with proper spacing:
+# Row 1: y = 1
+# AISLE: y = 2
+# Row 2: y = 3  (back-to-back with Row 3)
+# Row 3: y = 4  (back-to-back with Row 2)
+# AISLE: y = 5
+# Row 4: y = 6
+
+get_row_y <- function(row) {
+  c(1, 3, 4, 6)[row]
+}
+
+# Calculate plot coordinates
 cabinet_labels <- data.table(
   Cabinet = 1:24,
   CabRow = ceiling(1:24 / 6),
   CabCol = ifelse((1:24 - 1) %% 6 < 3, 1, 2),
   CabPosInRow = ((1:24 - 1) %% 3) + 1
 )
-cabinet_labels[, PlotX := (CabCol - 1) * (3 * cabinet_spacing + aisle_gap) +
-                          (CabPosInRow - 1) * cabinet_spacing + pos_width/2]
-cabinet_labels[, PlotY := CabRow]
+cabinet_labels[, PlotY := get_row_y(CabRow), by = Cabinet]
+cabinet_labels[, PlotX := (CabCol - 1) * 8 + (CabPosInRow - 1) * 2 + 1]
+
+assigned_skus[, PlotY := get_row_y(CabRow), by = 1:nrow(assigned_skus)]
+assigned_skus[, PlotX := (CabCol - 1) * 8 + (CabPosInRow - 1) * 2 + SubPosStart_m/pos_width*2]
+assigned_skus[, PlotXEnd := (CabCol - 1) * 8 + (CabPosInRow - 1) * 2 + SubPosEnd_m/pos_width*2]
 
 p_layout <- ggplot() +
   # Background for cabinets
-  geom_rect(data = cabinet_labels, aes(xmin = PlotX - pos_width/2, xmax = PlotX + pos_width/2,
+  geom_rect(data = cabinet_labels, aes(xmin = PlotX - 1, xmax = PlotX + 1,
                                         ymin = PlotY - 0.4, ymax = PlotY + 0.4),
             fill = "gray90", color = "gray50", linewidth = 0.5) +
-  # SKU boxes
+  # SKU boxes (floors stacked within cabinet)
   geom_rect(data = assigned_skus, aes(xmin = PlotX, xmax = PlotXEnd,
-                                       ymin = PlotY - 0.3 + (Floor-1)*0.12,
-                                       ymax = PlotY - 0.3 + Floor*0.12,
+                                       ymin = PlotY - 0.35 + (Floor-1)*0.14,
+                                       ymax = PlotY - 0.35 + Floor*0.14,
                                        fill = log10(Frequency + 1)),
             color = "white", linewidth = 0.1) +
   # Cabinet number labels
-  geom_text(data = cabinet_labels, aes(x = PlotX, y = PlotY + 0.5, label = Cabinet),
-            size = 3, fontface = "bold") +
-  # Aisle labels
-  annotate("text", x = 6, y = 1.5, label = "=== AISLE ===", size = 3, color = "gray40") +
-  annotate("text", x = 6, y = 2.5, label = "BACK-TO-BACK", size = 2.5, color = "red", fontface = "italic") +
-  annotate("text", x = 6, y = 3.5, label = "=== AISLE ===", size = 3, color = "gray40") +
-  annotate("text", x = 5.5, y = 0.5, label = "AISLE", size = 2.5, color = "gray40", angle = 90) +
+  geom_text(data = cabinet_labels, aes(x = PlotX, y = PlotY + 0.55, label = Cabinet),
+            size = 3.5, fontface = "bold") +
+  # Aisle between Row 1 and 2
+  annotate("rect", xmin = -0.5, xmax = 14.5, ymin = 1.7, ymax = 2.3, fill = "gray70", alpha = 0.3) +
+  annotate("text", x = 7, y = 2, label = "═════════════ AISLE ═════════════", size = 3, color = "gray30") +
+  # Back-to-back between Row 2 and 3
+  annotate("rect", xmin = -0.5, xmax = 14.5, ymin = 3.35, ymax = 3.65, fill = "brown", alpha = 0.3) +
+  annotate("text", x = 7, y = 3.5, label = "══════ BACK-TO-BACK ══════", size = 3, color = "brown") +
+  # Aisle between Row 3 and 4
+  annotate("rect", xmin = -0.5, xmax = 14.5, ymin = 4.7, ymax = 5.3, fill = "gray70", alpha = 0.3) +
+  annotate("text", x = 7, y = 5, label = "═════════════ AISLE ═════════════", size = 3, color = "gray30") +
+  # Vertical aisle between columns
+  annotate("rect", xmin = 5.7, xmax = 6.3, ymin = 0.4, ymax = 6.6, fill = "gray60", alpha = 0.2) +
+  annotate("text", x = 6, y = 0.1, label = "AISLE", size = 2.5, color = "gray30") +
+  # Row labels on right side
+  annotate("text", x = 15.5, y = 1, label = "Row 1 (Start)", hjust = 0, size = 3, fontface = "bold") +
+  annotate("text", x = 15.5, y = 3, label = "Row 2", hjust = 0, size = 3) +
+  annotate("text", x = 15.5, y = 4, label = "Row 3", hjust = 0, size = 3) +
+  annotate("text", x = 15.5, y = 6, label = "Row 4 (Top)", hjust = 0, size = 3, fontface = "bold") +
+  # Column labels
+  annotate("text", x = 3, y = 7, label = "Column 1", size = 4, fontface = "bold") +
+  annotate("text", x = 11, y = 7, label = "Column 2", size = 4, fontface = "bold") +
   scale_fill_gradient(low = "steelblue", high = "darkred",
                       name = "Log10(Freq)",
                       breaks = c(2, 2.5, 3, 3.5, 4),
                       labels = c("100", "316", "1K", "3.2K", "10K")) +
-  scale_y_continuous(breaks = 1:4, labels = paste("Row", 1:4)) +
-  scale_x_continuous(breaks = c(1, 4, 9, 12), labels = c("Col 1", "Center", "Col 2", "")) +
+  scale_y_continuous(limits = c(-0.2, 7.5), breaks = NULL) +
+  scale_x_continuous(limits = c(-0.5, 18), breaks = NULL) +
   labs(
-    title = "FPA Layout - 4 Rows × 2 Columns × 3 Cabinets",
+    title = "FPA Layout - 4 Rows × 2 Columns × 3 Cabinets (Matches dataguide.md)",
     subtitle = paste0(nrow(assigned_skus), " SKUs in ", nrow(position_summary), " positions | ",
-                      "Cabinet numbers shown above | Floors 1-5 stacked within each cabinet"),
-    x = "Position",
-    y = "Row"
+                      "Floors 1-5 stacked within each cabinet | Cabinet numbers shown above"),
+    x = NULL,
+    y = NULL
   ) +
   theme_minimal() +
   theme(
     plot.title = element_text(size = 14, face = "bold"),
-    panel.grid.major = element_line(color = "gray80")
+    panel.grid = element_blank(),
+    axis.text = element_blank()
   )
 
 ggsave("Q3_fpa_layout.png", p_layout, width = 14, height = 10, dpi = 150)
 cat("  - Saved: Q3_fpa_layout.png\n")
 
-# 2. Position Utilization Heatmap (4×2×3 layout)
+# 2. Position Utilization Heatmap (4×2×3 layout - matching dataguide.md)
 # Add cabinet info to position summary
 position_summary[, CabRow := ceiling(Cabinet / 6)]
 position_summary[, CabCol := ifelse((Cabinet - 1) %% 6 < 3, 1, 2)]
 position_summary[, CabPosInRow := ((Cabinet - 1) %% 3) + 1]
-position_summary[, PlotX := (CabCol - 1) * 4 + CabPosInRow]
-position_summary[, PlotY := CabRow]
 
-# Create cabinet labels for facets
-position_summary[, RowLabel := paste("Row", CabRow)]
+# Reorder rows so Row 1 is at bottom, Row 4 at top (matching dataguide layout)
+position_summary[, RowLabel := factor(paste("Row", CabRow),
+                                       levels = c("Row 4", "Row 3", "Row 2", "Row 1"))]
 position_summary[, ColLabel := paste("Column", CabCol)]
 
 p_util <- ggplot(position_summary, aes(x = factor(CabPosInRow), y = factor(Floor))) +
   geom_tile(aes(fill = SKUsInPosition), color = "white") +
   geom_text(aes(label = paste0("C", Cabinet, "\n", SKUsInPosition, " SKU\n", WidthUsed_pct, "%")),
             size = 2, color = "white") +
-  facet_grid(CabRow ~ CabCol, labeller = labeller(
-    CabRow = c("1" = "Row 1 (Bottom)", "2" = "Row 2", "3" = "Row 3", "4" = "Row 4 (Top)"),
+  facet_grid(RowLabel ~ CabCol, labeller = labeller(
     CabCol = c("1" = "Column 1", "2" = "Column 2")
   )) +
   scale_fill_gradient(low = "steelblue", high = "darkred", name = "SKUs\nper Pos") +
   scale_y_discrete(limits = rev(c("1", "2", "3", "4", "5"))) +
-  scale_x_discrete(labels = c("Pos 1", "Pos 2", "Pos 3")) +
+  scale_x_discrete(labels = c("Cab 1", "Cab 2", "Cab 3")) +
   labs(
-    title = "Position Utilization - 4 Rows × 2 Columns × 3 Cabinets",
-    subtitle = "Each cell shows Cabinet#, SKU count, and width utilization % | Note: Row 2-3 are back-to-back",
-    x = "Position within Row",
-    y = "Floor Level"
+    title = "Position Utilization - Layout Matches dataguide.md",
+    subtitle = "Row 4 (Top) to Row 1 (Bottom) | Row 2-3 are BACK-TO-BACK | Each cell: Cabinet#, SKUs, utilization%",
+    x = "Cabinet Position within Row",
+    y = "Floor Level (1=Bottom, 5=Top)"
   ) +
   theme_minimal() +
   theme(
@@ -838,7 +879,7 @@ p_floor <- ggplot(floor_summary, aes(x = factor(Floor), y = SKUs)) +
 ggsave("Q3_floor_distribution.png", p_floor, width = 10, height = 7, dpi = 150)
 cat("  - Saved: Q3_floor_distribution.png\n")
 
-# 4. Detailed floor views (with 4×2×3 layout and dynamic text sizing)
+# 4. Detailed floor views (matching dataguide.md layout: Row 1 at bottom, Row 4 at top)
 for (f in 1:5) {
   floor_data <- slotting_assigned[Floor == f]
   if (nrow(floor_data) == 0) next
@@ -857,9 +898,13 @@ for (f in 1:5) {
   floor_data[, TextSize := ifelse(WidthRatio >= 0.5, 2.0,
                                    ifelse(WidthRatio >= 0.3, 1.5, 1.2))]
 
-  # Calculate plot positions using 4×2×3 layout
-  floor_data[, PlotX := (CabCol - 1) * 4 + (CabPosInRow - 1) + SubPosStart_m/pos_width]
-  floor_data[, PlotXEnd := (CabCol - 1) * 4 + (CabPosInRow - 1) + SubPosEnd_m/pos_width]
+  # Calculate plot positions using layout matching dataguide.md
+  # X: Column 1 at left (0-3), Column 2 at right (4.5-7.5) with aisle gap
+  floor_data[, PlotX := (CabCol - 1) * 4.5 + (CabPosInRow - 1) + SubPosStart_m/pos_width]
+  floor_data[, PlotXEnd := (CabCol - 1) * 4.5 + (CabPosInRow - 1) + SubPosEnd_m/pos_width]
+
+  # Y: Row 4 at top, Row 1 at bottom (matching dataguide.md)
+  floor_data[, PlotY := 5 - CabRow]  # Row 1 -> Y=4, Row 4 -> Y=1
 
   # Create cabinet position markers
   cab_markers <- data.table(
@@ -868,45 +913,61 @@ for (f in 1:5) {
     CabCol = ifelse((1:24 - 1) %% 6 < 3, 1, 2),
     CabPosInRow = ((1:24 - 1) %% 3) + 1
   )
-  cab_markers[, PlotX := (CabCol - 1) * 4 + (CabPosInRow - 1) + 0.5]
+  cab_markers[, PlotX := (CabCol - 1) * 4.5 + (CabPosInRow - 1) + 0.5]
+  cab_markers[, PlotY := 5 - CabRow]
 
   p <- ggplot() +
     # Cabinet background outlines
     geom_rect(data = cab_markers, aes(xmin = PlotX - 0.5, xmax = PlotX + 0.5,
-                                       ymin = 0.05, ymax = 0.95),
+                                       ymin = PlotY - 0.4, ymax = PlotY + 0.4),
               fill = "gray95", color = "gray50", linewidth = 0.3) +
     # SKU boxes
     geom_rect(data = floor_data, aes(xmin = PlotX, xmax = PlotXEnd,
-                                      ymin = 0.1, ymax = 0.9, fill = Frequency),
+                                      ymin = PlotY - 0.35, ymax = PlotY + 0.35, fill = Frequency),
               color = "black", linewidth = 0.3) +
-    geom_text(data = floor_data, aes(x = (PlotX + PlotXEnd)/2, y = 0.5,
+    geom_text(data = floor_data, aes(x = (PlotX + PlotXEnd)/2, y = PlotY,
                                       label = Label, size = TextSize),
               color = "white", fontface = "bold", show.legend = FALSE) +
-    # Cabinet number labels at top
-    geom_text(data = cab_markers, aes(x = PlotX, y = 1.1, label = Cabinet),
+    # Cabinet number labels above
+    geom_text(data = cab_markers, aes(x = PlotX, y = PlotY + 0.55, label = Cabinet),
               size = 2.5, fontface = "bold") +
-    # Aisle separator line
-    geom_vline(xintercept = 3.5, color = "gray30", linewidth = 1, linetype = "dashed") +
-    annotate("text", x = 3.5, y = 1.2, label = "AISLE", size = 2.5, color = "gray40") +
+    # Aisle between columns
+    annotate("rect", xmin = 3.1, xmax = 3.4, ymin = 0.3, ymax = 4.7, fill = "gray60", alpha = 0.3) +
+    annotate("text", x = 3.25, y = 0, label = "AISLE", size = 2, color = "gray40") +
+    # Aisle between Row 1-2 (y=4 and y=3)
+    annotate("rect", xmin = -0.7, xmax = 8.2, ymin = 2.55, ymax = 2.95, fill = "gray70", alpha = 0.3) +
+    annotate("text", x = 4, y = 2.75, label = "AISLE", size = 2.5, color = "gray40") +
+    # Back-to-back between Row 2-3 (y=3 and y=2)
+    annotate("rect", xmin = -0.7, xmax = 8.2, ymin = 1.55, ymax = 1.95, fill = "brown", alpha = 0.3) +
+    annotate("text", x = 4, y = 1.75, label = "BACK-TO-BACK", size = 2.5, color = "brown") +
+    # Aisle between Row 3-4 (y=2 and y=1)
+    annotate("rect", xmin = -0.7, xmax = 8.2, ymin = 0.55, ymax = 0.95, fill = "gray70", alpha = 0.3) +
+    annotate("text", x = 4, y = 0.75, label = "AISLE", size = 2.5, color = "gray40") +
+    # Row labels on right side
+    annotate("text", x = 8.5, y = 4, label = "Row 1 (Start)", hjust = 0, size = 2.5, fontface = "bold") +
+    annotate("text", x = 8.5, y = 3, label = "Row 2", hjust = 0, size = 2.5) +
+    annotate("text", x = 8.5, y = 2, label = "Row 3", hjust = 0, size = 2.5) +
+    annotate("text", x = 8.5, y = 1, label = "Row 4 (Top)", hjust = 0, size = 2.5, fontface = "bold") +
+    # Column labels at top
+    annotate("text", x = 1.5, y = 4.8, label = "Column 1", size = 3, fontface = "bold") +
+    annotate("text", x = 6, y = 4.8, label = "Column 2", size = 3, fontface = "bold") +
     scale_size_identity() +
     scale_fill_gradient(low = "steelblue", high = "red", name = "Frequency") +
-    scale_x_continuous(breaks = c(1.5, 5.5), labels = c("Column 1", "Column 2")) +
-    facet_wrap(~CabRow, ncol = 1, labeller = labeller(
-      CabRow = c("1" = "Row 1 (Bottom)", "2" = "Row 2", "3" = "Row 3", "4" = "Row 4 (Top)")
-    )) +
+    scale_x_continuous(limits = c(-0.7, 10)) +
+    scale_y_continuous(limits = c(-0.3, 5.2)) +
     labs(
-      title = paste0("Floor ", f, " - ",
+      title = paste0("Floor ", f, " Detail - ",
                     ifelse(f == 3, "GOLDEN ZONE",
-                    ifelse(f %in% c(2,4), "Good Ergonomics", "Lower Priority"))),
-      subtitle = paste0(nrow(floor_data), " SKUs | 4 Rows × 2 Columns × 3 Cabinets | Row 2-3 back-to-back"),
-      x = "", y = ""
+                    ifelse(f %in% c(2,4), "Good Ergonomics", "Lower Priority")),
+                    " (Layout matches dataguide.md)"),
+      subtitle = paste0(nrow(floor_data), " SKUs | Row 4 at Top, Row 1 at Bottom | Row 2-3 back-to-back"),
+      x = NULL, y = NULL
     ) +
     theme_minimal() +
     theme(
-      axis.text.y = element_blank(),
-      axis.ticks.y = element_blank(),
-      strip.background = element_rect(fill = "gray30"),
-      strip.text = element_text(color = "white", face = "bold")
+      axis.text = element_blank(),
+      axis.ticks = element_blank(),
+      panel.grid = element_blank()
     )
 
   ggsave(paste0("Q3_floor_", f, "_detail.png"), p, width = 12, height = 10, dpi = 150)
