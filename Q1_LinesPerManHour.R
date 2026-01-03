@@ -79,17 +79,23 @@ shipTrans_small[, YearMonth := format(ShippingDay, "%Y%m")]
 # จากเอกสาร: พนักงานหยิบชิ้นส่วนขนาดเล็ก 80 คน
 num_workers <- 80
 
-# Morning Shift: 08:00-17:00 (9 ชม.) + OT 17:00-19:00 (2 ชม.) = 11 ชม.
-# สมมติทำงานเฉพาะ Regular Hours = 9 ชม./วัน
-hours_per_day <- 9
+# มี 2 กะทำงาน:
+# - Morning Shift: 08:00-17:00 (9 ชม.) + OT 17:00-19:00 (2 ชม.)
+# - Evening Shift: 23:00-08:00 (9 ชม.)
+#
+# แต่พนักงานใช้เวลาส่วนใหญ่ในกิจกรรมอื่น (ตามรูปที่ 8):
+# - ตรวจสอบ Picking List, ค้นหาใน WMS (59% ของเวลา)
+# - เดิน, จัดเรียง, สแกน, พันฟิล์ม
+# ดังนั้น เวลาหยิบจริง (Effective Picking Hours) ≈ 2.3 ชม./คน/วัน
+effective_hours_per_worker <- 2.3
 
-# ชั่วโมงแรงงานต่อวัน
-man_hours_per_day <- num_workers * hours_per_day
+# ชั่วโมงแรงงานต่อวัน (Effective Man-Hours)
+man_hours_per_day <- num_workers * effective_hours_per_worker
 
 cat("พารามิเตอร์แรงงาน:\n")
 cat("  - จำนวนพนักงานหยิบชิ้นส่วนขนาดเล็ก: ", num_workers, " คน\n", sep="")
-cat("  - ชั่วโมงทำงานต่อวัน: ", hours_per_day, " ชม.\n", sep="")
-cat("  - Man-hours ต่อวัน: ", man_hours_per_day, " ชม.\n\n", sep="")
+cat("  - เวลาหยิบจริงต่อคนต่อวัน (Effective): ", effective_hours_per_worker, " ชม.\n", sep="")
+cat("  - Effective Man-hours ต่อวัน: ", man_hours_per_day, " ชม.\n\n", sep="")
 
 ### =========================
 ### STEP 6: วิเคราะห์รายวัน

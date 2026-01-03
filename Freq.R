@@ -18,9 +18,44 @@ cat("  - shipTrans: ", format(nrow(shipTrans), big.mark=","), " แถว\n", se
 cat("  - itemMaster: ", format(nrow(itemMaster), big.mark=","), " รายการ\n\n", sep="")
 
 ### =========================
-### STEP 2: ทำความสะอาดชื่อคอลัมน์
+### STEP 1.5: กรองข้อมูลช่วงน้ำท่วมและวันอาทิตย์
 ### =========================
+cat("กรองข้อมูลช่วงน้ำท่วมและวันอาทิตย์...\n")
+
+# Clean column names first for filtering
 setnames(shipTrans, names(shipTrans), gsub("[ .]", "", names(shipTrans)))
+
+# Convert ShippingDay to Date
+shipTrans[, ShippingDate := as.Date(as.character(as.integer(ShippingDay)), format="%Y%m%d")]
+
+# Extract year-month from ShippingDay (more reliable than yyyymm column which has NAs)
+shipTrans[, YearMonth := as.integer(format(ShippingDate, "%Y%m"))]
+
+# Get day of week
+shipTrans[, DayOfWeek := weekdays(ShippingDate)]
+
+# Count before filtering
+n_before <- nrow(shipTrans)
+
+# Remove flood period: Oct-Nov 2011 (201110, 201111)
+n_flood <- nrow(shipTrans[YearMonth %in% c(201110, 201111)])
+shipTrans <- shipTrans[!YearMonth %in% c(201110, 201111)]
+
+# Remove Sundays
+n_sunday <- nrow(shipTrans[DayOfWeek == "Sunday"])
+shipTrans <- shipTrans[DayOfWeek != "Sunday"]
+
+n_after <- nrow(shipTrans)
+
+cat("  - ข้อมูลก่อนกรอง: ", format(n_before, big.mark=","), " แถว\n", sep="")
+cat("  - ลบช่วงน้ำท่วม (ต.ค.-พ.ย. 2554): ", format(n_flood, big.mark=","), " แถว\n", sep="")
+cat("  - ลบวันอาทิตย์: ", format(n_sunday, big.mark=","), " แถว\n", sep="")
+cat("  - ข้อมูลหลังกรอง: ", format(n_after, big.mark=","), " แถว\n\n", sep="")
+
+### =========================
+### STEP 2: ทำความสะอาดชื่อคอลัมน์ itemMaster
+### =========================
+# shipTrans already cleaned in STEP 1.5
 setnames(itemMaster, names(itemMaster), gsub("[ .]", "", names(itemMaster)))
 
 # แก้ไขชื่อคอลัมน์ itemMaster
@@ -85,9 +120,10 @@ cat("  - จำนวน SKU ที่มีการหยิบ: ", nrow(sku_f
 cat("รวมข้อมูลขนาดกล่อง...\n")
 
 # หลัง gsub ชื่อคอลัมน์จะเป็น: Partname, Boxtype (ตัวเล็ก)
+# รวม UnitLabelQt ด้วยเพื่อคำนวณปริมาตรต่อชิ้น
 sku_freq <- merge(
   sku_freq,
-  filtered_SKUs[, .(PartNo, Partname, Boxtype, CubM, ModuleSizeL, ModuleSizeV, ModuleSizeH)],
+  filtered_SKUs[, .(PartNo, Partname, Boxtype, CubM, UnitLabelQt, ModuleSizeL, ModuleSizeV, ModuleSizeH)],
   by = "PartNo",
   all.x = TRUE
 )
@@ -96,8 +132,8 @@ sku_freq <- merge(
 setnames(sku_freq, "Partname", "PartName", skip_absent = TRUE)
 setnames(sku_freq, "Boxtype", "BoxType", skip_absent = TRUE)
 
-# กรองออก SKU ที่ไม่มีข้อมูลปริมาตร
-sku_freq <- sku_freq[!is.na(CubM) & CubM > 0]
+# กรองออก SKU ที่ไม่มีข้อมูลปริมาตรหรือจำนวนต่อกล่อง
+sku_freq <- sku_freq[!is.na(CubM) & CubM > 0 & !is.na(UnitLabelQt) & UnitLabelQt > 0]
 cat("  - SKU ที่มีข้อมูลปริมาตรครบ: ", nrow(sku_freq), " รายการ\n\n", sep="")
 
 ### =========================
@@ -105,11 +141,19 @@ cat("  - SKU ที่มีข้อมูลปริมาตรครบ: ",
 ### =========================
 cat("คำนวณ Viscosity...\n")
 
-# Volume = ปริมาตรรวมที่ต้องจัดส่งต่อปี = Freq × CubM (Flow/Demand)
-sku_freq[, Volume := Freq * CubM]
+# Flow (D_i) = ปริมาตรรวมที่ต้องจัดส่งต่อปี = TotalQty × (CubM / UnitLabelQt)
+# **สำคัญ**:
+#   - CubM = ปริมาตรต่อกล่อง (box volume)
+#   - UnitLabelQt = จำนวนชิ้นต่อกล่อง (pieces per box)
+#   - CubM / UnitLabelQt = ปริมาตรต่อชิ้น (volume per piece)
+#   - TotalQty = จำนวนชิ้นทั้งหมดที่หยิบ (total pieces picked)
+#   - Volume = TotalQty × (CubM / UnitLabelQt) = total volume demanded
+sku_freq[, VolumePerPiece := CubM / UnitLabelQt]
+sku_freq[, Volume := TotalQty * VolumePerPiece]
 
 # Viscosity = Freq / √(Volume) ตาม Fluid Model (Bartholdi & Hackman)
 # η_i = f_i / √(D_i) = picks / √(flow)
+# โดย f_i = frequency (จำนวนครั้งที่หยิบ), D_i = flow (ปริมาตรรวมต่อปี)
 sku_freq[, Viscosity := Freq / sqrt(Volume)]
 
 # เรียงตาม Viscosity จากมากไปน้อย
