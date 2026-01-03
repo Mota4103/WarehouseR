@@ -86,18 +86,20 @@ get_adjacent_cabinets <- function(cab) {
 }
 
 ### =========================
-### STEP 1: Load Data
+### STEP 1: Load Data (Independent from Q2)
 ### =========================
 cat("Loading data...\n")
 
-if (!file.exists("Q2_FPA_Optimal_SKUs.csv")) {
-  stop("Q2_FPA_Optimal_SKUs.csv not found. Please run Q2_FluidModel.R first.")
+# Load DataFreq (all SKUs with Viscosity) - NOT from Q2
+if (!file.exists("DataFreq.csv")) {
+  stop("DataFreq.csv not found. Please run Freq.R first.")
 }
 
-optimal_skus <- fread("Q2_FPA_Optimal_SKUs.csv")
+all_skus <- fread("DataFreq.csv")
 itemMaster <- fread("itemMaster.txt", sep = ",", header = TRUE)
 
-cat("  - Optimal SKUs from Q2: ", nrow(optimal_skus), " items\n", sep="")
+cat("  - Total SKUs from DataFreq: ", nrow(all_skus), " items\n", sep="")
+cat("  - Will select SKUs by Viscosity until all 120 positions are filled\n", sep="")
 
 ### =========================
 ### STEP 2: Clean and Prepare Data
@@ -131,30 +133,43 @@ itemMaster[, BoxHeight_m := ModuleSizeH / 1000]
 ### =========================
 cat("Calculating width needed per SKU...\n")
 
+# Sort by Viscosity (highest first) - this determines selection order
+setorder(all_skus, -Viscosity)
+
+# Merge with itemMaster for box dimensions
 slotting <- merge(
-  optimal_skus,
+  all_skus,
   itemMaster[, .(PartNo, PartName, BoxWidth_m, BoxDepth_m, BoxHeight_m, CubM)],
   by = "PartNo",
   all.x = TRUE
 )
+
+# Re-sort by Viscosity after merge
+setorder(slotting, -Viscosity)
+
+# Rename columns to match expected format
+setnames(slotting, "Freq", "Frequency", skip_absent = TRUE)
+setnames(slotting, "Volume", "DemandVolume_m3", skip_absent = TRUE)
 
 # Calculate how many boxes fit in depth and height of position
 slotting[, BoxesInDepth := pmax(1, floor(pos_depth / BoxDepth_m))]
 slotting[, BoxesInHeight := pmax(1, floor(pos_height / BoxHeight_m))]
 slotting[, BoxesPerColumn := BoxesInDepth * BoxesInHeight]
 
-# Calculate total boxes needed to hold allocated volume
-slotting[, TotalBoxesNeeded := ceiling(AllocatedVolume_m3 / CubM)]
-
-# Calculate how many columns (width-wise) needed
-slotting[, ColumnsNeeded := ceiling(TotalBoxesNeeded / BoxesPerColumn)]
-
-# Calculate width needed in meters
-slotting[, WidthNeeded_m := ColumnsNeeded * BoxWidth_m]
+# Width needed = 1 box width (minimum allocation per SKU)
+# Each SKU gets at least 1 column width in the FPA
+slotting[, WidthNeeded_m := BoxWidth_m]
+slotting[, TotalBoxesNeeded := BoxesPerColumn]  # 1 column of boxes
 
 # Handle NA values
 slotting[is.na(WidthNeeded_m), WidthNeeded_m := 0.2]  # Default 20cm
+slotting[is.na(BoxWidth_m), BoxWidth_m := 0.2]  # Default box width
 slotting[WidthNeeded_m > pos_width, WidthNeeded_m := pos_width]  # Cap at position width
+
+# Add placeholder columns that were from Q2 (for compatibility)
+slotting[, AllocatedVolume_m3 := CubM]  # 1 box volume
+slotting[, Benefit := 0]
+slotting[, ReplenishTrips := 0]
 
 # Sort by FREQUENCY (highest first for golden zone priority)
 # Frequency is better for ergonomic floor assignment:
@@ -406,6 +421,13 @@ for (i in 1:nrow(slotting)) {
   if (!is.na(slotting$Cabinet[i])) next  # Already assigned
 
   width_needed <- slotting$WidthNeeded_m[i]
+
+  # Check if ANY position can fit this SKU
+  max_remaining <- max(position_remaining)
+  if (max_remaining < width_needed) {
+    cat("  - FPA is full, no position can fit SKU ", i, " (needs ", round(width_needed, 2), "m)\n", sep="")
+    break
+  }
   current_sku <- slotting$PartNo[i]
   current_prefix <- slotting$Prefix[i]
   assoc_group <- slotting$AssociationGroup[i]
@@ -567,7 +589,7 @@ for (i in 1:nrow(slotting)) {
 }
 
 cat("  - SKUs assigned: ", skus_assigned, "\n", sep="")
-cat("  - SKUs not fitting: ", skus_not_fit, "\n", sep="")
+cat("  - SKUs not fitting (FPA full): ", skus_not_fit, "\n", sep="")
 cat("  - Associated pairs placed together: ", association_together, "\n", sep="")
 cat("  - Prefix-grouped placements: ", prefix_together, "\n\n", sep="")
 
@@ -609,8 +631,11 @@ setorder(slotting, ViscosityRank)
 ### =========================
 cat("=== SLOTTING SUMMARY ===\n\n")
 
+# Filter to only assigned SKUs for all summaries
+slotting_assigned <- slotting[!is.na(Cabinet)]
+
 # Count SKUs per position
-position_summary <- slotting[!is.na(Cabinet), .(
+position_summary <- slotting_assigned[, .(
   SKUsInPosition = .N,
   TotalFrequency = sum(Frequency),
   TotalWidth_m = sum(WidthNeeded_m),
@@ -625,7 +650,7 @@ cat("  - Average SKUs per position: ", round(mean(position_summary$SKUsInPositio
 cat("  - Average width utilization: ", round(mean(position_summary$WidthUsed_pct), 1), "%\n\n", sep="")
 
 # Floor summary
-floor_summary <- slotting[!is.na(Floor), .(
+floor_summary <- slotting_assigned[, .(
   SKUs = .N,
   Positions = uniqueN(paste(Cabinet, Floor)),
   TotalFrequency = sum(Frequency),
@@ -639,7 +664,7 @@ print(floor_summary)
 
 # Prefix grouping summary
 cat("\nPrefix Grouping Summary:\n")
-prefix_summary <- slotting[!is.na(Cabinet), .(
+prefix_summary <- slotting_assigned[, .(
   SKUs = .N,
   Cabinets = uniqueN(Cabinet),
   CabinetRange = paste0(min(Cabinet), "-", max(Cabinet)),
@@ -649,10 +674,10 @@ setorder(prefix_summary, -SKUs)
 print(head(prefix_summary, 10))
 
 # Re-sort by FrequencyRank for display
-setorder(slotting, FrequencyRank)
+setorder(slotting_assigned, FrequencyRank)
 
 cat("\nTop 20 SKUs (highest frequency - ergonomic priority):\n")
-print(slotting[1:min(20, .N), .(
+print(slotting_assigned[1:min(20, .N), .(
   FreqRank = FrequencyRank, PartNo, Frequency,
   Viscosity = round(Viscosity, 0),
   Width_m = round(WidthNeeded_m, 3),
@@ -665,6 +690,9 @@ print(slotting[1:min(20, .N), .(
 ### =========================
 cat("\nSaving results...\n")
 
+# Filter only assigned SKUs for output
+assigned_output <- slotting[!is.na(Cabinet)]
+
 output_cols <- c("FrequencyRank", "ViscosityRank", "PartNo", "PartName", "Prefix", "Frequency", "DemandVolume_m3",
                  "Viscosity", "AllocatedVolume_m3", "Benefit", "ReplenishTrips",
                  "BoxWidth_m", "BoxDepth_m", "BoxHeight_m", "TotalBoxesNeeded",
@@ -672,9 +700,9 @@ output_cols <- c("FrequencyRank", "ViscosityRank", "PartNo", "PartName", "Prefix
                  "SubPosStart_m", "SubPosEnd_m", "X", "Y",
                  "ErgonomicScore", "AssociatedWith", "AssociationGroup")
 
-output_cols <- intersect(output_cols, names(slotting))
-fwrite(slotting[, ..output_cols], "Q3_slotting_result.csv")
-cat("  - Saved: Q3_slotting_result.csv (", nrow(slotting), " SKUs)\n", sep="")
+output_cols <- intersect(output_cols, names(assigned_output))
+fwrite(assigned_output[, ..output_cols], "Q3_slotting_result.csv")
+cat("  - Saved: Q3_slotting_result.csv (", nrow(assigned_output), " SKUs)\n", sep="")
 
 fwrite(all_pairs, "Q3_association_pairs.csv")
 cat("  - Saved: Q3_association_pairs.csv\n")
@@ -688,7 +716,7 @@ cat("  - Saved: Q3_position_utilization.csv\n")
 cat("\nCreating visualizations...\n")
 
 # 1. Multi-SKU Layout View (4 rows × 2 columns × 3 cabinets)
-assigned_skus <- slotting[!is.na(Cabinet)]
+assigned_skus <- slotting_assigned
 
 # Calculate proper x/y coordinates for 4x2x3 layout
 assigned_skus[, PlotX := (CabCol - 1) * (3 * cabinet_spacing + aisle_gap) +
@@ -788,7 +816,9 @@ ggsave("Q3_position_utilization.png", p_util, width = 12, height = 12, dpi = 150
 cat("  - Saved: Q3_position_utilization.png\n")
 
 # 3. Floor Distribution
-floor_summary[, Ergonomic := c("Lower", "Good", "GOLDEN ZONE", "Good", "Upper")]
+# Assign ergonomic labels based on floor number
+ergonomic_map <- c("1" = "Lower", "2" = "Good", "3" = "GOLDEN ZONE", "4" = "Good", "5" = "Upper")
+floor_summary[, Ergonomic := ergonomic_map[as.character(Floor)]]
 
 p_floor <- ggplot(floor_summary, aes(x = factor(Floor), y = SKUs)) +
   geom_bar(stat = "identity", aes(fill = Ergonomic)) +
@@ -810,7 +840,7 @@ cat("  - Saved: Q3_floor_distribution.png\n")
 
 # 4. Detailed floor views (with 4×2×3 layout and dynamic text sizing)
 for (f in 1:5) {
-  floor_data <- slotting[Floor == f]
+  floor_data <- slotting_assigned[Floor == f]
   if (nrow(floor_data) == 0) next
 
   # Calculate width ratio for each SKU to determine text size
