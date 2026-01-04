@@ -396,7 +396,7 @@ Example: Position C01F3 (width = 1.98m)
 ```
 
 ### Output
-- **SKUs Assigned:** 669
+- **SKUs Assigned:** 135
 - **Positions Used:** 120 (all filled)
 - **Average Width Utilization:** ~94%
 
@@ -439,31 +439,42 @@ Distance = √(X² + Y²)
 Where X, Y are from start position to SKU position
 ```
 
-#### Step 3: Export Pick Orders
+#### Step 3: Export Pick Orders (OrderPickLines)
 
 ```
-From shipTrans, filter FPA SKUs:
-- OrderID = unique identifier
-- ShippingDay, DeliveryTime
-- PartNo, ScanQty
-- Map to FPA position coordinates
+From shipTrans, filter only valid FPA SKUs:
+- valid_fpa_skus = intersect(slotting$PartNo, itemMaster$PartNo)
+- This ensures OrderPickLines only contains SKUs in Simio_SKU_Params
+
+Columns:
+- OrderID = ShippingDay_DeliveryNo
+- DateTimeStr = "YYYY-MM-DD HH:MM:SS" format
+- PartNo, Cabinet, Floor, PositionID
+- OrderQty, ScanQty, ReceivingLocation
+
+Filters applied:
+- Remove flood period (Oct-Nov 2011)
+- Remove Sundays
+- Remove rows with NA DateTimeStr
+- Only SKUs with valid Cabinet/Floor/PositionID
 ```
 
-#### Step 4: Export Inventory Parameters
+#### Step 4: Export SKU Parameters (SKU_Params)
 
 ```
-For each SKU:
-- MaxBoxes = Allocated boxes (based on width)
-- MinBoxes = 20% of Max (reorder point)
-- SafetyStock = 10% of Max
-- DailyAvgPicks = Frequency / 247 working days
+For each SKU (sorted by CabinetNo, FloorNo):
+- MaxPieces = MaxBoxes × PiecesPerBox
+- ReorderPoint = floor(MaxPieces / 2)
+- InitialPieces = MaxPieces (start full)
+- AnnualFrequency, Viscosity
 ```
 
 ### Output Files
-1. `Simio_SKU_FPA_Layout.csv` - SKU positions with coordinates
-2. `Simio_Pick_Orders.csv` - Historical pick data
-3. `Simio_SKU_Inventory_Params.csv` - Inventory parameters
-4. `Simio_Activity_Times.csv` - Time standards
+1. `Simio_OrderPickLines.csv` - Pick order lines (only valid FPA SKUs)
+2. `Simio_StandardTime.csv` - Activity time standards
+3. `Simio_SKUs_in_FPA.csv` - Detailed SKU info with inventory params
+4. `Simio_SKU_Params.csv` - Simplified SKU params (sorted by Cabinet)
+5. `Simio_Positions_in_FPA.csv` - Position coordinates
 
 ---
 
@@ -506,7 +517,7 @@ Sort by COI ascending (lowest COI = highest priority)
 #### Step 2: Select Same Number of SKUs as Fluid Model
 
 ```
-n = Number of SKUs selected by Fluid Model (e.g., 154)
+n = Number of SKUs selected by Fluid Model (e.g., 135)
 Select top n SKUs by lowest COI
 ```
 
