@@ -230,6 +230,25 @@ fwrite(skus_fpa, "Simio_SKUs_in_FPA.csv")
 cat("   Saved:", nrow(skus_fpa), "SKUs\n\n")
 
 ### =========================
+### TABLE 3b: SKU Params for Simio
+### =========================
+cat("3b. Creating Simio_SKU_Params.csv...\n")
+
+sku_params <- skus_fpa[, .(
+  PartNo,
+  PartName,
+  CabinetNo = Cabinet,
+  FloorNo = Floor,
+  MaxPieces = MaxPieceQty,
+  InitialPieces = InitialQty,
+  AnnualFrequency = Frequency,
+  Viscosity
+)]
+
+fwrite(sku_params, "Simio_SKU_Params.csv")
+cat("   Saved:", nrow(sku_params), "SKUs\n\n")
+
+### =========================
 ### TABLE 4: Positions in FPA (only cabinets with SKUs)
 ### =========================
 cat("4. Creating Simio_Positions_in_FPA.csv...\n")
@@ -323,6 +342,7 @@ cat("Files created:\n")
 cat("  1. Simio_OrderPickLines.csv  - ", format(nrow(order_pick_lines), big.mark=","), " pick lines\n", sep="")
 cat("  2. Simio_StandardTime.csv    - 7 activity times\n")
 cat("  3. Simio_SKUs_in_FPA.csv     - ", nrow(skus_fpa), " SKUs with inventory params\n", sep="")
+cat("  3b.Simio_SKU_Params.csv      - ", nrow(sku_params), " SKUs (simplified)\n", sep="")
 cat("  4. Simio_Positions_in_FPA.csv- ", nrow(positions_fpa), " positions\n\n", sep="")
 
 cat("Cabinet Layout:\n")
