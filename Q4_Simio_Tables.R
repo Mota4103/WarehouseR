@@ -80,7 +80,7 @@ order_pick_lines <- pick_lines[, .(
 )]
 
 # Remove rows with missing DateTime components
-order_pick_lines <- order_pick_lines[!is.na(DeliveryHour) & !is.na(DeliveryMinute)]
+order_pick_lines <- order_pick_lines[!is.na(DateTimeStr) & !is.na(DeliveryHour) & !is.na(DeliveryMinute)]
 
 # Sort by DateTime
 setorder(order_pick_lines, DateTimeStr, OrderID)
