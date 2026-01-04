@@ -43,26 +43,44 @@ pick_lines[, DeliveryTime := sprintf("%04d", as.integer(DeliveryTime))]
 pick_lines[, DeliveryHour := as.integer(substr(DeliveryTime, 1, 2))]
 pick_lines[, DeliveryMinute := as.integer(substr(DeliveryTime, 3, 4))]
 
+# Create proper DateTime for Simio (format: YYYY-MM-DD HH:MM:SS)
+pick_lines[, ShippingDate := as.Date(as.character(as.integer(ShippingDay)), "%Y%m%d")]
+pick_lines[, DateTimeStr := paste0(format(ShippingDate, "%Y-%m-%d"), " ",
+                                    sprintf("%02d", DeliveryHour), ":",
+                                    sprintf("%02d", DeliveryMinute), ":00")]
+
 # Create order ID
 delivery_col <- grep("DeliveryNo", names(pick_lines), value = TRUE)[1]
 pick_lines[, OrderID := paste(as.integer(ShippingDay), get(delivery_col), sep = "_")]
 
+# Merge with SKU position info from slotting
+pick_lines <- merge(
+  pick_lines,
+  slotting[, .(PartNo, Cabinet, Floor, PositionID)],
+  by = "PartNo",
+  all.x = TRUE
+)
+
 # Select columns for Simio
 order_pick_lines <- pick_lines[, .(
   OrderID,
+  LineNo = 1:.N,
+  DateTimeStr,
   ShippingDay = as.integer(ShippingDay),
-  DeliveryTime,
   DeliveryHour,
   DeliveryMinute,
   PartNo,
+  Cabinet,
+  Floor,
+  PositionID,
   BoxType,
   OrderQty = as.integer(OrderQty),
   ScanQty = as.integer(ScanQty),
   ReceivingLocation
 )]
 
-# Sort by time
-setorder(order_pick_lines, ShippingDay, DeliveryHour, DeliveryMinute)
+# Sort by DateTime
+setorder(order_pick_lines, DateTimeStr, OrderID)
 order_pick_lines[, LineNo := 1:.N]
 
 fwrite(order_pick_lines, "Simio_OrderPickLines.csv")
@@ -129,7 +147,7 @@ cat("   Saved: 7 activities\n\n")
 ### =========================
 cat("3. Creating Simio_SKUs_in_FPA.csv...\n")
 
-# Merge with itemMaster for box dimensions
+# Merge with itemMaster for box dimensions and UnitLabelQt
 skus_fpa <- merge(
   slotting[, .(
     PartNo,
@@ -141,6 +159,8 @@ skus_fpa <- merge(
     Cabinet,
     Floor,
     PositionID,
+    SubPosStart_m,
+    SubPosEnd_m,
     BoxWidth_m,
     BoxDepth_m,
     BoxHeight_m,
@@ -151,18 +171,33 @@ skus_fpa <- merge(
   all.x = TRUE
 )
 
-# Calculate inventory parameters
+# Clean and convert
 skus_fpa[, CubM := as.numeric(gsub(",", "", CubM))]
+skus_fpa[, UnitLabelQt := as.integer(gsub(",", "", UnitLabelQt))]
+skus_fpa[is.na(UnitLabelQt), UnitLabelQt := 1]  # Default to 1 if missing
+
+# Calculate inventory parameters (in BOXES)
 skus_fpa[, MaxBoxes := TotalBoxesNeeded]
 skus_fpa[, MinBoxes := pmax(1, floor(MaxBoxes / 2))]
-skus_fpa[, ReorderPoint := MinBoxes]
+skus_fpa[, ReorderPointBoxes := MinBoxes]
+
+# Calculate inventory parameters (in PIECES)
+skus_fpa[, PiecesPerBox := UnitLabelQt]
+skus_fpa[, MaxPieceQty := MaxBoxes * PiecesPerBox]
+skus_fpa[, InitialQty := MaxPieceQty]  # Start full
+skus_fpa[, CurrentQty := InitialQty]   # For simulation start
+skus_fpa[, MinPieceQty := MinBoxes * PiecesPerBox]
+skus_fpa[, ReorderPointPieces := MinPieceQty]
+
+# Daily average
 skus_fpa[, DailyAvgPicks := round(Frequency / 250, 2)]  # 250 working days
+skus_fpa[, DailyAvgPieces := round(DailyAvgPicks * PiecesPerBox, 2)]
 
 # Sort by Viscosity (high to low)
 setorder(skus_fpa, -Viscosity)
 skus_fpa[, ViscosityRank := 1:.N]
 
-# Reorder columns
+# Reorder columns - include position and piece quantities
 skus_fpa <- skus_fpa[, .(
   ViscosityRank,
   PartNo,
@@ -173,13 +208,22 @@ skus_fpa <- skus_fpa[, .(
   Cabinet,
   Floor,
   PositionID,
+  SubPosStart_m = round(SubPosStart_m, 3),
+  SubPosEnd_m = round(SubPosEnd_m, 3),
   BoxWidth_m,
   BoxDepth_m,
   BoxHeight_m,
+  PiecesPerBox,
   MaxBoxes,
+  MaxPieceQty,
+  InitialQty,
+  CurrentQty,
   MinBoxes,
-  ReorderPoint,
-  DailyAvgPicks
+  MinPieceQty,
+  ReorderPointBoxes,
+  ReorderPointPieces,
+  DailyAvgPicks,
+  DailyAvgPieces
 )]
 
 fwrite(skus_fpa, "Simio_SKUs_in_FPA.csv")

@@ -86,11 +86,10 @@ get_adjacent_cabinets <- function(cab) {
 }
 
 ### =========================
-### STEP 1: Load Data (Independent from Q2)
+### STEP 1: Load Data
 ### =========================
 cat("Loading data...\n")
 
-# Load DataFreq (all SKUs with Viscosity) - NOT from Q2
 if (!file.exists("DataFreq.csv")) {
   stop("DataFreq.csv not found. Please run Freq.R first.")
 }
@@ -99,7 +98,7 @@ all_skus <- fread("DataFreq.csv")
 itemMaster <- fread("itemMaster.txt", sep = ",", header = TRUE)
 
 cat("  - Total SKUs from DataFreq: ", nrow(all_skus), " items\n", sep="")
-cat("  - Will select SKUs by Viscosity until all 120 positions are filled\n", sep="")
+cat("  - Will find optimal SKUs using BENEFIT PEAK method (same as Q2)\n", sep="")
 
 ### =========================
 ### STEP 2: Clean and Prepare Data
@@ -166,33 +165,151 @@ slotting[is.na(WidthNeeded_m), WidthNeeded_m := 0.2]  # Default 20cm
 slotting[is.na(BoxWidth_m), BoxWidth_m := 0.2]  # Default box width
 slotting[WidthNeeded_m > pos_width, WidthNeeded_m := pos_width]  # Cap at position width
 
-# Add placeholder columns that were from Q2 (for compatibility)
-slotting[, AllocatedVolume_m3 := CubM]  # 1 box volume
-slotting[, Benefit := 0]
-slotting[, ReplenishTrips := 0]
+# Calculate box volume for each SKU
+slotting[, BoxVolume_m3 := BoxWidth_m * BoxDepth_m * BoxHeight_m]
+slotting[is.na(BoxVolume_m3), BoxVolume_m3 := 0.2 * 0.2 * 0.2]  # Default
 
-# Sort by FREQUENCY (highest first for golden zone priority)
-# Frequency is better for ergonomic floor assignment:
-# - Higher frequency = more picks = more bending/reaching
-# - Put highest frequency items at most ergonomic floors
-setorder(slotting, -Frequency)
-slotting[, FrequencyRank := 1:.N]
-
-# Also keep viscosity rank for reference
+# Sort by Viscosity (highest first) for benefit calculation
 setorder(slotting, -Viscosity)
 slotting[, ViscosityRank := 1:.N]
 
-# Extract prefix for grouping (first 2-3 characters)
+### =========================
+### STEP 3B: Find Optimal SKUs using BENEFIT PEAK (same method as Q2)
+### =========================
+cat("\nFinding optimal SKUs using BENEFIT PEAK method...\n")
+
+# Parameters (use cabinet volume, not 36 m³)
+V_fpa <- n_cabinets * n_floors * pos_volume   # 24 × 5 × 0.4039 = 48.47 m³
+W_fpa <- n_cabinets * n_floors * pos_width    # 24 × 5 × 1.98 = 237.6 m
+s <- 2.0             # Time saved per FPA pick (min/line)
+Cr <- 15.0           # Replenishment time (min/trip)
+
+cat("  - FPA Volume (cabinet capacity): ", round(V_fpa, 2), " m³\n", sep="")
+cat("  - FPA Total Width: ", round(W_fpa, 2), " m\n", sep="")
+cat("  - Time saved per pick: ", s, " min\n", sep="")
+cat("  - Replenishment time: ", Cr, " min\n\n", sep="")
+
+# Sort by viscosity (highest first)
+setorder(slotting, -Viscosity)
+
+### STEP 1: Find optimal SKUs using Q2 method (NO physical constraints)
+### This is pure fluid model - find benefit peak first
+cat("Step 1: Finding optimal SKUs (Q2 method - no physical constraints)...\n")
+
+n_skus <- nrow(slotting)
+results <- data.table(n = 1:n_skus, TotalBenefit = 0)
+
+for (i in 1:n_skus) {
+  selected <- slotting[1:i]
+
+  # Fluid model allocation: v_i* = V × sqrt(D_i) / sum(sqrt(D_j))
+  sqrt_D <- sqrt(selected$DemandVolume_m3)
+  sum_sqrt_D <- sum(sqrt_D)
+  v_star <- V_fpa * sqrt_D / sum_sqrt_D
+
+  # Benefit: B_i = s × f_i - Cr × (D_i / v_i*)
+  benefit <- s * selected$Frequency - Cr * (selected$DemandVolume_m3 / v_star)
+  results[i, TotalBenefit := sum(benefit)]
+}
+
+# Find peak (maximum benefit)
+optimal_n <- results[which.max(TotalBenefit), n]
+max_benefit <- results[which.max(TotalBenefit), TotalBenefit]
+
+cat("  - Optimal SKUs at peak: ", optimal_n, "\n", sep="")
+cat("  - Maximum benefit: ", format(round(max_benefit), big.mark=","), " min/year\n\n", sep="")
+
+### STEP 2: Apply physical constraints to optimal SKUs
+cat("Step 2: Applying physical constraints (ceil for boxes + cap to 1 position)...\n")
+
+# Keep only optimal SKUs
+slotting <- slotting[1:optimal_n]
+
+# Recalculate fluid model allocation for optimal n
+sqrt_D <- sqrt(slotting$DemandVolume_m3)
+sum_sqrt_D <- sum(sqrt_D)
+slotting[, v_fluid := V_fpa * sqrt_D / sum_sqrt_D]
+
+# Convert to physical boxes with CEIL
+slotting[, AllocBoxes := ceiling(v_fluid / BoxVolume_m3)]
+slotting[AllocBoxes < 1, AllocBoxes := 1]
+
+# Calculate max boxes per position (within 1 depth = 1 SKU, so cap to 1 position)
+slotting[, MaxColumns := floor(pos_width / BoxWidth_m)]
+slotting[, MaxBoxesPerPos := MaxColumns * BoxesPerColumn]
+
+# Cap each SKU to fit in 1 position (since 1 depth = 1 SKU constraint)
+slotting[, AllocBoxes := pmin(AllocBoxes, MaxBoxesPerPos)]
+slotting[, ColumnsNeeded := ceiling(AllocBoxes / BoxesPerColumn)]
+slotting[, ColumnsNeeded := pmin(ColumnsNeeded, MaxColumns)]
+slotting[, AllocWidth := ColumnsNeeded * BoxWidth_m]
+slotting[, AllocWidth := pmin(AllocWidth, pos_width)]
+
+# Calculate volume and benefit with CAPPED allocation
+slotting[, AllocVolume := AllocBoxes * BoxVolume_m3]
+slotting[, SKU_Benefit := s * Frequency - Cr * (DemandVolume_m3 / AllocVolume)]
+
+cat("  - Total physical volume (capped): ", round(sum(slotting$AllocVolume), 2), " m³\n", sep="")
+cat("  - Total physical width (capped): ", round(sum(slotting$AllocWidth), 2), " m\n", sep="")
+cat("  - Total width available: ", W_fpa, " m\n", sep="")
+
+### STEP 3: If width STILL exceeds capacity, remove lowest viscosity SKUs
+if (sum(slotting$AllocWidth) > W_fpa) {
+  cat("\nStep 3: Width exceeds capacity, removing lowest viscosity SKUs...\n")
+
+  # Sort by viscosity (already sorted, but ensure)
+  setorder(slotting, -Viscosity)
+
+  # Remove from bottom until width fits
+  while (sum(slotting$AllocWidth) > W_fpa && nrow(slotting) > 1) {
+    slotting <- slotting[1:(nrow(slotting) - 1)]
+  }
+
+  cat("  - SKUs after filtering: ", nrow(slotting), "\n", sep="")
+  cat("  - Final width: ", round(sum(slotting$AllocWidth), 2), " m\n", sep="")
+} else {
+  cat("\nStep 3: Width fits, all ", nrow(slotting), " SKUs retained\n", sep="")
+}
+
+cat("\n=== BENEFIT PEAK ANALYSIS ===\n")
+cat("  - SKUs from fluid model peak: ", optimal_n, "\n", sep="")
+cat("  - SKUs after physical constraint: ", nrow(slotting), "\n", sep="")
+cat("  - Maximum benefit (fluid): ", format(round(max_benefit), big.mark=","), " min/year\n", sep="")
+cat("  - Physical benefit (capped): ", format(round(sum(slotting$SKU_Benefit)), big.mark=","), " min/year\n", sep="")
+cat("  - = ", round(sum(slotting$SKU_Benefit) / 60, 1), " hours/year saved\n", sep="")
+cat("  - Total width used: ", round(sum(slotting$AllocWidth), 2), " / ", W_fpa, " m\n\n", sep="")
+
+# Update optimal_n to actual count
+optimal_n <- nrow(slotting)
+
+# Set final values
+slotting[, TotalBoxesNeeded := AllocBoxes]
+slotting[, AllocatedVolume_m3 := AllocVolume]
+slotting[, Benefit := SKU_Benefit]
+slotting[, ReplenishTrips := DemandVolume_m3 / AllocatedVolume_m3]
+slotting[, WidthNeeded_m := AllocWidth]
+
+cat("Selected ", optimal_n, " SKUs for FPA (benefit-optimized)\n", sep="")
+cat("  - Total allocated volume: ", round(sum(slotting$AllocatedVolume_m3), 2), " m³\n", sep="")
+cat("  - Total frequency: ", format(sum(slotting$Frequency), big.mark=","), " picks/year\n", sep="")
+
+# Sort by FREQUENCY for ergonomic floor assignment
+setorder(slotting, -Frequency)
+slotting[, FrequencyRank := 1:.N]
+
+# Re-sort by Viscosity for reference
+setorder(slotting, -Viscosity)
+
+# Extract prefix for grouping
 slotting[, Prefix := substr(PartNo, 1, 3)]
 
-# Count items per prefix to identify major groups
+# Count items per prefix
 prefix_counts <- slotting[, .(Count = .N, TotalFreq = sum(Frequency)), by = Prefix]
 setorder(prefix_counts, -Count)
 
 cat("  - Total width needed: ", round(sum(slotting$WidthNeeded_m), 2), " m\n", sep="")
 cat("  - Total width available: ", n_cabinets * n_floors * pos_width, " m\n", sep="")
-cat("  - Prefix groups found: ", nrow(prefix_counts), "\n", sep="")
-cat("  - Top prefixes: ", paste(head(prefix_counts$Prefix, 5), collapse=", "), "\n\n", sep="")
+cat("  - Prefix groups: ", nrow(prefix_counts), "\n\n", sep="")
 
 ### =========================
 ### STEP 4: Association Analysis (BEFORE Slotting)
@@ -899,12 +1016,14 @@ for (f in 1:5) {
                                    ifelse(WidthRatio >= 0.3, 1.5, 1.2))]
 
   # Calculate plot positions using layout matching dataguide.md
-  # X: Column 1 at left (0-3), Column 2 at right (4.5-7.5) with aisle gap
-  floor_data[, PlotX := (CabCol - 1) * 4.5 + (CabPosInRow - 1) + SubPosStart_m/pos_width]
-  floor_data[, PlotXEnd := (CabCol - 1) * 4.5 + (CabPosInRow - 1) + SubPosEnd_m/pos_width]
+  # X: Column 1 at left (0-3), Column 2 at right (5-8) with aisle gap in middle
+  floor_data[, PlotX := (CabCol - 1) * 5 + (CabPosInRow - 1) + SubPosStart_m/pos_width]
+  floor_data[, PlotXEnd := (CabCol - 1) * 5 + (CabPosInRow - 1) + SubPosEnd_m/pos_width]
 
-  # Y: Row 4 at top, Row 1 at bottom (matching dataguide.md)
-  floor_data[, PlotY := 5 - CabRow]  # Row 1 -> Y=4, Row 4 -> Y=1
+  # Y: Row 1 at bottom, Row 4 at top with proper spacing for aisles
+  # Row 1: Y=1, Row 2: Y=3, Row 3: Y=4.5, Row 4: Y=6.5
+  get_floor_row_y <- function(row) c(1, 3, 4.5, 6.5)[row]
+  floor_data[, PlotY := get_floor_row_y(CabRow), by = 1:nrow(floor_data)]
 
   # Create cabinet position markers
   cab_markers <- data.table(
@@ -913,8 +1032,8 @@ for (f in 1:5) {
     CabCol = ifelse((1:24 - 1) %% 6 < 3, 1, 2),
     CabPosInRow = ((1:24 - 1) %% 3) + 1
   )
-  cab_markers[, PlotX := (CabCol - 1) * 4.5 + (CabPosInRow - 1) + 0.5]
-  cab_markers[, PlotY := 5 - CabRow]
+  cab_markers[, PlotX := (CabCol - 1) * 5 + (CabPosInRow - 1) + 0.5]
+  cab_markers[, PlotY := get_floor_row_y(CabRow), by = 1:nrow(cab_markers)]
 
   p <- ggplot() +
     # Cabinet background outlines
@@ -928,33 +1047,33 @@ for (f in 1:5) {
     geom_text(data = floor_data, aes(x = (PlotX + PlotXEnd)/2, y = PlotY,
                                       label = Label, size = TextSize),
               color = "white", fontface = "bold", show.legend = FALSE) +
-    # Cabinet number labels above
-    geom_text(data = cab_markers, aes(x = PlotX, y = PlotY + 0.55, label = Cabinet),
+    # Cabinet number labels below
+    geom_text(data = cab_markers, aes(x = PlotX, y = PlotY - 0.55, label = Cabinet),
               size = 2.5, fontface = "bold") +
-    # Aisle between columns
-    annotate("rect", xmin = 3.1, xmax = 3.4, ymin = 0.3, ymax = 4.7, fill = "gray60", alpha = 0.3) +
-    annotate("text", x = 3.25, y = 0, label = "AISLE", size = 2, color = "gray40") +
-    # Aisle between Row 1-2 (y=4 and y=3)
-    annotate("rect", xmin = -0.7, xmax = 8.2, ymin = 2.55, ymax = 2.95, fill = "gray70", alpha = 0.3) +
-    annotate("text", x = 4, y = 2.75, label = "AISLE", size = 2.5, color = "gray40") +
-    # Back-to-back between Row 2-3 (y=3 and y=2)
-    annotate("rect", xmin = -0.7, xmax = 8.2, ymin = 1.55, ymax = 1.95, fill = "brown", alpha = 0.3) +
-    annotate("text", x = 4, y = 1.75, label = "BACK-TO-BACK", size = 2.5, color = "brown") +
-    # Aisle between Row 3-4 (y=2 and y=1)
-    annotate("rect", xmin = -0.7, xmax = 8.2, ymin = 0.55, ymax = 0.95, fill = "gray70", alpha = 0.3) +
-    annotate("text", x = 4, y = 0.75, label = "AISLE", size = 2.5, color = "gray40") +
+    # Aisle between columns (centered between X=3 and X=5)
+    annotate("rect", xmin = 3.5, xmax = 4.5, ymin = 0.3, ymax = 7.2, fill = "gray60", alpha = 0.3) +
+    annotate("text", x = 4, y = 0, label = "AISLE", size = 2.5, color = "gray40") +
+    # Aisle between Row 1 (Y=1) and Row 2 (Y=3)
+    annotate("rect", xmin = -0.7, xmax = 8.7, ymin = 1.8, ymax = 2.2, fill = "gray70", alpha = 0.3) +
+    annotate("text", x = 4, y = 2, label = "AISLE", size = 2.5, color = "gray40") +
+    # Back-to-back between Row 2 (Y=3) and Row 3 (Y=4.5)
+    annotate("rect", xmin = -0.7, xmax = 8.7, ymin = 3.6, ymax = 3.9, fill = "brown", alpha = 0.3) +
+    annotate("text", x = 4, y = 3.75, label = "BACK-TO-BACK", size = 2.5, color = "brown") +
+    # Aisle between Row 3 (Y=4.5) and Row 4 (Y=6.5)
+    annotate("rect", xmin = -0.7, xmax = 8.7, ymin = 5.3, ymax = 5.7, fill = "gray70", alpha = 0.3) +
+    annotate("text", x = 4, y = 5.5, label = "AISLE", size = 2.5, color = "gray40") +
     # Row labels on right side
-    annotate("text", x = 8.5, y = 4, label = "Row 1 (Start)", hjust = 0, size = 2.5, fontface = "bold") +
-    annotate("text", x = 8.5, y = 3, label = "Row 2", hjust = 0, size = 2.5) +
-    annotate("text", x = 8.5, y = 2, label = "Row 3", hjust = 0, size = 2.5) +
-    annotate("text", x = 8.5, y = 1, label = "Row 4 (Top)", hjust = 0, size = 2.5, fontface = "bold") +
+    annotate("text", x = 9, y = 1, label = "Row 1 (Start)", hjust = 0, size = 2.5, fontface = "bold") +
+    annotate("text", x = 9, y = 3, label = "Row 2", hjust = 0, size = 2.5) +
+    annotate("text", x = 9, y = 4.5, label = "Row 3", hjust = 0, size = 2.5) +
+    annotate("text", x = 9, y = 6.5, label = "Row 4 (Top)", hjust = 0, size = 2.5, fontface = "bold") +
     # Column labels at top
-    annotate("text", x = 1.5, y = 4.8, label = "Column 1", size = 3, fontface = "bold") +
-    annotate("text", x = 6, y = 4.8, label = "Column 2", size = 3, fontface = "bold") +
+    annotate("text", x = 1.5, y = 7.3, label = "Column 1", size = 3, fontface = "bold") +
+    annotate("text", x = 6.5, y = 7.3, label = "Column 2", size = 3, fontface = "bold") +
     scale_size_identity() +
     scale_fill_gradient(low = "steelblue", high = "red", name = "Frequency") +
-    scale_x_continuous(limits = c(-0.7, 10)) +
-    scale_y_continuous(limits = c(-0.3, 5.2)) +
+    scale_x_continuous(limits = c(-0.7, 11)) +
+    scale_y_continuous(limits = c(-0.5, 7.8)) +
     labs(
       title = paste0("Floor ", f, " Detail - ",
                     ifelse(f == 3, "GOLDEN ZONE",

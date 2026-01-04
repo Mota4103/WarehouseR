@@ -1,0 +1,8 @@
+Activity,Time,Unit,Speed_or_Rate,Description
+Walking,1,min/100m,1.67 m/sec,Walking time in FPA aisle
+Check_and_Pick,0.4,min/line,2.5 lines/min,Check location and pick part
+Pick_per_Box,0.1,min/box,10 boxes/min,Additional time per box picked
+Replenishment_Normal,15,min/trip,4 trips/hour,Normal replenishment (min-max system)
+Replenishment_Emergency,120,min/trip,0.5 trips/hour,Emergency: open container from reserve
+Start_Stop_Cart,0.2,min/stop,5 stops/min,Stop and start picking cart
+Scan,0.083,min/scan,12 scans/min,Barcode scanning time

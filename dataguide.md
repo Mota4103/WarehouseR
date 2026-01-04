@@ -31,7 +31,10 @@
 | จำนวนชั้นต่อตู้ (Floors) | 5 | ชั้น |
 | ตำแหน่งทั้งหมด | 120 | ตำแหน่ง |
 | ขนาดตำแหน่ง | 1.98 × 0.68 × 0.30 | เมตร |
-| ปริมาตร FPA รวม (V) | 36.0 | m³ |
+| ปริมาตรต่อตำแหน่ง | 0.4039 | m³ |
+| ปริมาตร FPA รวม (Cabinet Volume) | 48.47 | m³ |
+| ความกว้าง FPA รวม | 237.6 | m |
+| ปริมาตร FPA สำหรับ Fluid Model (V) | 36.0 | m³ |
 
 ### 1.3 Cabinet Layout (4 แถว × 2 คอลัมน์ × 3 ตู้)
 
@@ -743,24 +746,41 @@ Cabinet, Floor, SKUsInPosition, TotalWidth_m, WidthUsed_pct
 
 ### 5.6 สถิติการจัดวาง (ตัวอย่างผลลัพธ์)
 
+**กระบวนการเลือก SKU (ใช้ Cabinet Volume 48.47 m³):**
 ```
-Position Utilization:
-- Positions with 1 SKU:  67 (60%)
-- Positions with 2 SKUs: 43 (38%)
-- Positions with 3+ SKUs: 2 (2%)
-- Average SKUs per position: 1.42
-- Average width utilization: 95.8%
+Step 1: Benefit Peak Analysis (Fluid Model)
+- SKUs at benefit peak: 185 SKUs
+- Maximum benefit (fluid): 307,878 min/year
 
-Floor Summary (Frequency-based assignment):
-Floor | SKUs | Total Frequency | Avg Viscosity | หมายเหตุ
-------|------|-----------------|---------------|----------
-  3   |  24  |    104,722      |      499      | GOLDEN ZONE - สูงสุด!
-  2   |  32  |     43,540      |      418      | Good
-  4   |  36  |     28,566      |      388      | Good
-  1   |  33  |     18,076      |      289      | Lower
-  5   |  34  |     10,671      |      263      | Upper
+Step 2: Apply Physical Constraints (ceil for boxes + cap to 1 position)
+- SKUs after filtering: 184 SKUs
+- Total width used: 236.65 / 237.6 m (99.6%)
 
-สังเกต: Floor 3 มี Total Frequency สูงสุด (104,722 picks/year)
+Step 3: Bin Packing into Positions
+- SKUs actually placed: 135 SKUs
+- Remaining 49 SKUs couldn't fit due to fragmentation
+```
+
+**Position Utilization:**
+```
+- Positions with 1 SKU:  105 (88%)
+- Positions with 2 SKUs: 15 (12%)
+- Positions with 3+ SKUs: 0 (0%)
+- Average SKUs per position: 1.12
+- Average width utilization: 84.9%
+```
+
+**Floor Summary (Frequency-based assignment):**
+```
+Floor | SKUs | Positions | Total Frequency | Avg Viscosity | หมายเหตุ
+------|------|-----------|-----------------|---------------|----------
+  3   |  24  |    24     |     74,633      |      470      | GOLDEN ZONE - สูงสุด!
+  2   |  25  |    24     |     41,859      |      388      | Good
+  4   |  31  |    24     |     30,469      |      346      | Good
+  1   |  26  |    24     |     26,067      |      326      | Lower
+  5   |  29  |    24     |     22,797      |      305      | Upper
+
+สังเกต: Floor 3 มี Total Frequency สูงสุด (74,633 picks/year)
        = พนักงานหยิบจาก Golden Zone บ่อยที่สุด = ลดการก้ม/เอื้อม
 ```
 
@@ -936,13 +956,16 @@ Overlap Analysis:
    ┌──────────────┐
    │     Q2       │
    │ Fluid Model  │
-   │ 159 SKUs     │
+   │ 154 SKUs     │
+   │ (V=36 m³)    │
    └──────┬───────┘
           │
           ▼
    ┌──────────────┐
    │     Q3       │
    │  Slotting    │
+   │ 185→135 SKUs │
+   │ (V=48.47 m³) │
    │ 120 Positions│
    └──────┬───────┘
           │
@@ -982,8 +1005,8 @@ Rscript Q5_COI_Comparison.R
 | - | Freq.R | DataFreq.csv | SKU_frequency_analysis.csv |
 | Q1 | Q1_LinesPerManHour.R | Q1_daily_analysis.csv | Q1_monthly_comparison.csv, 4 PNG |
 | Q2 | Q2_FluidModel.R | Q2_FPA_Optimal_SKUs.csv | Q2_Benefit_Analysis.csv, 3 PNG |
-| Q3 | Q3_Slotting.R | Q3_slotting_result.csv | Q3_position_utilization.csv, Q3_association_pairs.csv, 10 PNG |
-| Q4 | SimioData_Export.R | 5 Simio_*.csv | - |
+| Q3 | Q3_Slotting.R | Q3_slotting_result.csv (135 SKUs) | Q3_position_utilization.csv, Q3_association_pairs.csv, 8 PNG |
+| Q4 | Q4_Simio_Tables.R | 4 Simio_*.csv | - |
 | Q5 | Q5_COI_Comparison.R | Q5_Comparison_Summary.csv | Q5_COI_SKUs.csv, 3 PNG |
 
 ---
@@ -1013,9 +1036,12 @@ Rscript Q5_COI_Comparison.R
 - **เหตุผล:** ข้อมูลช่วงน้ำท่วมเป็นสภาวะผิดปกติ ไม่ควรใช้ในการออกแบบ FPA
 
 ### Q3 Slotting (Multi-SKU per Position, Frequency-based)
-- **154 SKUs จัดลงใน FPA** (จาก 120 positions ทั้งหมด)
-- **Golden Zone (Floor 3) สำหรับ SKU ที่มี Frequency สูงสุด**
+- **ใช้ Cabinet Volume 48.47 m³** (ไม่ใช่ 36 m³) สำหรับ benefit calculation
+- **185 SKUs ที่ benefit peak** → 184 SKUs หลัง physical constraints → **135 SKUs จัดลงใน FPA จริง**
+- **Golden Zone (Floor 3) สำหรับ SKU ที่มี Frequency สูงสุด** (74,633 picks/year)
 - **ใช้ Frequency (ไม่ใช่ Viscosity) สำหรับ floor assignment** เพื่อลดการก้ม/เอื้อม
+- **Physical constraints:** ceil() สำหรับ boxes, cap to 1 position width per SKU
+- **Total width used: 236.65 / 237.6 m** (99.6% capacity)
 
 ### ข้อสังเกตสำคัญเกี่ยวกับสูตร Flow
 - **Flow = TotalQty × (CubM / UnitLabelQt)** (ถูกต้อง - ปริมาตรต่อชิ้น × จำนวนชิ้น)
