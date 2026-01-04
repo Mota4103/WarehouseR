@@ -26,17 +26,18 @@ shipTrans[, ShippingDate := as.Date(as.character(as.integer(ShippingDay)), "%Y%m
 shipTrans[, WeekDay := weekdays(ShippingDate)]
 shipTrans <- shipTrans[WeekDay != "Sunday"]
 
-# Get FPA SKUs
-fpa_skus <- unique(slotting$PartNo)
-cat("FPA SKUs:", length(fpa_skus), "\n\n")
+# Get valid FPA SKUs (must be in both slotting AND itemMaster)
+# This ensures OrderPickLines only contains SKUs that will be in Simio_SKU_Params
+valid_fpa_skus <- intersect(unique(slotting$PartNo), unique(itemMaster$PartNo))
+cat("Valid FPA SKUs (in slotting & itemMaster):", length(valid_fpa_skus), "\n\n")
 
 ### =========================
 ### TABLE 1: Order Pick Lines (FPA only)
 ### =========================
 cat("1. Creating Simio_OrderPickLines.csv...\n")
 
-# Filter only FPA SKUs
-pick_lines <- shipTrans[PartNo %in% fpa_skus]
+# Filter only valid FPA SKUs
+pick_lines <- shipTrans[PartNo %in% valid_fpa_skus]
 
 # Format time properly
 pick_lines[, DeliveryTime := sprintf("%04d", as.integer(DeliveryTime))]
@@ -81,6 +82,9 @@ order_pick_lines <- pick_lines[, .(
 
 # Remove rows with missing DateTime components
 order_pick_lines <- order_pick_lines[!is.na(DateTimeStr) & !is.na(DeliveryHour) & !is.na(DeliveryMinute)]
+
+# Filter to only SKUs with valid FPA positions (same as Simio_SKU_Params)
+order_pick_lines <- order_pick_lines[!is.na(Cabinet) & !is.na(Floor) & !is.na(PositionID)]
 
 # Sort by DateTime
 setorder(order_pick_lines, DateTimeStr, OrderID)
@@ -243,10 +247,14 @@ sku_params <- skus_fpa[, .(
   CabinetNo = Cabinet,
   FloorNo = Floor,
   MaxPieces = MaxPieceQty,
+  ReorderPoint = floor(MaxPieceQty / 2),
   InitialPieces = InitialQty,
   AnnualFrequency = Frequency,
   Viscosity
 )]
+
+# Sort by CabinetNo
+setorder(sku_params, CabinetNo, FloorNo)
 
 fwrite(sku_params, "Simio_SKU_Params.csv")
 cat("   Saved:", nrow(sku_params), "SKUs\n\n")
