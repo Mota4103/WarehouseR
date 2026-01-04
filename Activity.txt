@@ -1,9 +1,48 @@
-Activity,Min,Mean,Max,Unit
-grasp a carton,10.0,15.0,20.0,sec/ carton
-grasp an inner box/ a piece,5.0,8.0,15.0,sec/ box
-scan,3.0,5.0,7.0,sec/ trans
-walk with a power pallet/ a picking cart,1.0,1.5,2.5,m/ sec
-start/ stop a power pallet/ a picking cart,8.0,12.0,15.0,sec/ location
-stack an inner box/ a piece in a carton,8.0,15.0,30.0,sec/ line
-sort an inner box/ a piece inside aisle,10.0,10.0,20.0,sec/ line
-sort inner box outside aisle,5.0,8.0,10.0,sec/ box
+================================================================================
+                    FPA PICKING ACTIVITY DISTRIBUTION
+================================================================================
+
+EFFECTIVE WORKERS CALCULATION
+--------------------------------------------------------------------------------
+Shift Duration:         9 hours
+Break Time:             1 hour per worker
+Effective Fraction:     8/9 = 0.889
+
+Workers per Shift:      40
+Effective Workers:      40 x (8/9) = 35.56 workers
+
+Total Workers (2 shifts): 80
+Effective Workers/Day:    80 x (8/9) = 71.11 workers
+
+Man-Hours per Day:
+  = 80 workers x 9 hours x (8/9)
+  = 80 x 8
+  = 640 man-hours
+
+--------------------------------------------------------------------------------
+
+ACTIVITY TIMES (per pick line)
+--------------------------------------------------------------------------------
+Activity                Time (min)      Rate
+--------------------------------------------------------------------------------
+Walking                 1.0             min/100m (100 m/min speed)
+Check & Pick            0.4             min/line
+Pick per Box            0.1             min/box
+Scan                    0.083           min/scan (5 sec)
+Replenishment Normal    15.0            min/trip
+Replenishment Emergency 120.0           min/trip
+--------------------------------------------------------------------------------
+
+SIMULATION PARAMETERS
+--------------------------------------------------------------------------------
+Parameter               Value           Calculation
+--------------------------------------------------------------------------------
+Pickers (actual)        40              per shift
+Pickers (effective)     35.56           40 x (8/9)
+Shift Duration          540 min         9 hours
+Effective Duration      480 min         8 hours (after break)
+Walk Speed              100 m/min
+Avg Walk Distance       5.3 m
+--------------------------------------------------------------------------------
+
+================================================================================
