@@ -365,10 +365,18 @@ Algorithm:
 
    c. PRIORITY 3: Standard placement:
       - Follow floor priority (3 → 2 → 4 → 1 → 5)
-      - First cabinet with enough remaining width
+      - Fill cabinets by walking distance from start point
 
 3. Update position's remaining width
 4. Stop when no position can fit the next SKU
+
+Distance from Start Point:
+- Start point is between Cabinet 3 and 4 (center of Row 1 aisle)
+- Aisle width: 2.0m
+- Cabinet order by walking distance:
+  3 → 4 → 2 → 5 → 9 → 10 → 1 → 6 → 8 → 11 → 21 → 22 → ...
+- Distances: 0.99m, 0.99m, 2.97m, 2.97m, 3.67m, 3.67m, ...
+- High-frequency SKUs are placed closest to start point
 ```
 
 **Adjacency Rules:**
@@ -396,9 +404,9 @@ Example: Position C01F3 (width = 1.98m)
 ```
 
 ### Output
-- **SKUs Assigned:** 135
+- **SKUs Assigned:** 133
 - **Positions Used:** 120 (all filled)
-- **Average Width Utilization:** ~94%
+- **Average Width Utilization:** ~84%
 
 ---
 
@@ -517,7 +525,7 @@ Sort by COI ascending (lowest COI = highest priority)
 #### Step 2: Select Same Number of SKUs as Fluid Model
 
 ```
-n = Number of SKUs selected by Fluid Model (e.g., 135)
+n = Number of SKUs selected by Fluid Model (e.g., 133)
 Select top n SKUs by lowest COI
 ```
 

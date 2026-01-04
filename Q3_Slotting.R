@@ -85,6 +85,58 @@ get_adjacent_cabinets <- function(cab) {
   return(adj)
 }
 
+# Calculate walking distance from start point (between Cabinet 3 and 4) to each cabinet
+# Aisle width = 2.0m, Cabinet width = 1.98m
+aisle_width_m <- 2.0
+
+get_walking_distance <- function(cab) {
+  info <- get_cabinet_info(cab)
+  row <- info$row
+  col <- info$col
+  pos <- info$pos  # 1, 2, or 3 within the row
+
+  # Start point is in the center aisle between Column 1 and Column 2, at Row 1
+  # X distance: position 3 (Col1) and position 1 (Col2) are closest to center aisle
+  # Cabinet 3 is at pos=3 in Col1, Cabinet 4 is at pos=1 in Col2
+
+  # X distance from center aisle to cabinet center
+  if (col == 1) {
+    # Column 1: pos 3 is closest to aisle, pos 1 is furthest
+    x_dist <- (3 - pos) * pos_width + pos_width/2
+  } else {
+    # Column 2: pos 1 is closest to aisle, pos 3 is furthest
+    x_dist <- (pos - 1) * pos_width + pos_width/2
+  }
+
+  # Y distance: need to walk through aisles to reach different rows
+  # Row 1: Y = 0 (start point)
+  # Row 2: Y = aisle (between Row 1-2) = 2.0m
+  # Row 3: Y = aisle + back-to-back walk around = need to go via Row 4 aisle
+  # Row 4: Y = aisle (Row 1-2) + Row 2 depth + Row 3 depth + aisle (Row 3-4)
+
+  # Simplified: walking distance in Y direction
+  if (row == 1) {
+    y_dist <- 0
+  } else if (row == 2) {
+    y_dist <- aisle_width_m + pos_depth  # Walk through aisle to Row 2
+  } else if (row == 3) {
+    # Row 2-3 are back-to-back, must go around via Row 4 aisle
+    y_dist <- aisle_width_m + pos_depth + pos_depth + aisle_width_m + pos_depth
+  } else {  # row == 4
+    y_dist <- aisle_width_m + pos_depth + pos_depth + aisle_width_m
+  }
+
+  return(x_dist + y_dist)  # Manhattan distance (walking along aisles)
+}
+
+# Calculate distance for all cabinets and create sorted order
+cabinet_distances <- sapply(1:24, get_walking_distance)
+cabinets_by_distance <- order(cabinet_distances)
+
+cat("Cabinet order by walking distance from start (Cab 3-4):\n")
+cat("  ", paste(cabinets_by_distance, collapse = " → "), "\n")
+cat("  Distances: ", paste(round(cabinet_distances[cabinets_by_distance], 2), collapse = ", "), "m\n\n")
+
 ### =========================
 ### STEP 1: Load Data
 ### =========================
@@ -672,12 +724,13 @@ for (i in 1:nrow(slotting)) {
     }
   }
 
-  # PRIORITY 3: Standard algorithm (floor priority, first fit)
+  # PRIORITY 3: Standard algorithm (floor priority, closest cabinet first)
+  # Use cabinets_by_distance instead of sequential 1:24
   if (!assigned) {
     for (floor in floor_priority) {
       if (assigned) break
 
-      for (cab in 1:n_cabinets) {
+      for (cab in cabinets_by_distance) {
         remaining <- position_remaining[cab, floor]
 
         if (remaining >= width_needed) {
@@ -867,6 +920,9 @@ get_row_y <- function(row) {
 }
 
 # Calculate plot coordinates
+# Layout: Column 1 (X: 0-6), Aisle (X: 6-8), Column 2 (X: 8-14)
+# Each cabinet width = 2 units, 3 cabinets per column = 6 units
+# Aisle width = 2 units (centered at X=7)
 cabinet_labels <- data.table(
   Cabinet = 1:24,
   CabRow = ceiling(1:24 / 6),
@@ -874,22 +930,34 @@ cabinet_labels <- data.table(
   CabPosInRow = ((1:24 - 1) %% 3) + 1
 )
 cabinet_labels[, PlotY := get_row_y(CabRow), by = Cabinet]
-cabinet_labels[, PlotX := (CabCol - 1) * 8 + (CabPosInRow - 1) * 2 + 1]
+# Column 1: X = 1, 3, 5 (centers), spans 0-6
+# Column 2: X = 9, 11, 13 (centers), spans 8-14
+# Aisle at X = 6-8 (center at 7)
+cabinet_labels[, PlotX := ifelse(CabCol == 1,
+                                  (CabPosInRow - 1) * 2 + 1,      # Col 1: 1, 3, 5
+                                  8 + (CabPosInRow - 1) * 2 + 1)]  # Col 2: 9, 11, 13
 
 assigned_skus[, PlotY := get_row_y(CabRow), by = 1:nrow(assigned_skus)]
-assigned_skus[, PlotX := (CabCol - 1) * 8 + (CabPosInRow - 1) * 2 + SubPosStart_m/pos_width*2]
-assigned_skus[, PlotXEnd := (CabCol - 1) * 8 + (CabPosInRow - 1) * 2 + SubPosEnd_m/pos_width*2]
+assigned_skus[, PlotX := ifelse(CabCol == 1,
+                                 (CabPosInRow - 1) * 2 + SubPosStart_m/pos_width*2,
+                                 8 + (CabPosInRow - 1) * 2 + SubPosStart_m/pos_width*2)]
+assigned_skus[, PlotXEnd := ifelse(CabCol == 1,
+                                    (CabPosInRow - 1) * 2 + SubPosEnd_m/pos_width*2,
+                                    8 + (CabPosInRow - 1) * 2 + SubPosEnd_m/pos_width*2)]
+
+# Calculate daily frequency for visualization
+assigned_skus[, DailyFreq := Frequency / 250]
 
 p_layout <- ggplot() +
   # Background for cabinets
   geom_rect(data = cabinet_labels, aes(xmin = PlotX - 1, xmax = PlotX + 1,
                                         ymin = PlotY - 0.4, ymax = PlotY + 0.4),
             fill = "gray90", color = "gray50", linewidth = 0.5) +
-  # SKU boxes (floors stacked within cabinet)
+  # SKU boxes (floors stacked within cabinet) - use daily frequency, normal scale
   geom_rect(data = assigned_skus, aes(xmin = PlotX, xmax = PlotXEnd,
                                        ymin = PlotY - 0.35 + (Floor-1)*0.14,
                                        ymax = PlotY - 0.35 + Floor*0.14,
-                                       fill = log10(Frequency + 1)),
+                                       fill = DailyFreq),
             color = "white", linewidth = 0.1) +
   # Cabinet number labels
   geom_text(data = cabinet_labels, aes(x = PlotX, y = PlotY + 0.55, label = Cabinet),
@@ -903,25 +971,26 @@ p_layout <- ggplot() +
   # Aisle between Row 3 and 4
   annotate("rect", xmin = -0.5, xmax = 14.5, ymin = 4.7, ymax = 5.3, fill = "gray70", alpha = 0.3) +
   annotate("text", x = 7, y = 5, label = "═════════════ AISLE ═════════════", size = 3, color = "gray30") +
-  # Vertical aisle between columns
-  annotate("rect", xmin = 5.7, xmax = 6.3, ymin = 0.4, ymax = 6.6, fill = "gray60", alpha = 0.2) +
-  annotate("text", x = 6, y = 0.1, label = "AISLE", size = 2.5, color = "gray30") +
+  # Vertical aisle between columns (X: 6-8, centered at 7)
+  annotate("rect", xmin = 6, xmax = 8, ymin = 0.4, ymax = 6.6, fill = "gray60", alpha = 0.3) +
+  annotate("text", x = 7, y = 0.1, label = "AISLE", size = 2.5, color = "gray30") +
   # Row labels on right side
   annotate("text", x = 15.5, y = 1, label = "Row 1 (Start)", hjust = 0, size = 3, fontface = "bold") +
   annotate("text", x = 15.5, y = 3, label = "Row 2", hjust = 0, size = 3) +
   annotate("text", x = 15.5, y = 4, label = "Row 3", hjust = 0, size = 3) +
   annotate("text", x = 15.5, y = 6, label = "Row 4 (Top)", hjust = 0, size = 3, fontface = "bold") +
-  # Column labels
+  # Column labels (centered over each column)
   annotate("text", x = 3, y = 7, label = "Column 1", size = 4, fontface = "bold") +
   annotate("text", x = 11, y = 7, label = "Column 2", size = 4, fontface = "bold") +
+  # Start point marker (between Cabinet 3 and 4)
+  annotate("point", x = 7, y = 1, size = 4, color = "green", shape = 18) +
+  annotate("text", x = 7, y = 0.6, label = "START", size = 2.5, color = "darkgreen", fontface = "bold") +
   scale_fill_gradient(low = "steelblue", high = "darkred",
-                      name = "Log10(Freq)",
-                      breaks = c(2, 2.5, 3, 3.5, 4),
-                      labels = c("100", "316", "1K", "3.2K", "10K")) +
+                      name = "Daily Picks") +
   scale_y_continuous(limits = c(-0.2, 7.5), breaks = NULL) +
   scale_x_continuous(limits = c(-0.5, 18), breaks = NULL) +
   labs(
-    title = "FPA Layout - 4 Rows × 2 Columns × 3 Cabinets (Matches dataguide.md)",
+    title = "FPA Layout - 4 Rows × 2 Columns × 3 Cabinets",
     subtitle = paste0(nrow(assigned_skus), " SKUs in ", nrow(position_summary), " positions | ",
                       "Floors 1-5 stacked within each cabinet | Cabinet numbers shown above"),
     x = NULL,
@@ -1004,12 +1073,15 @@ for (f in 1:5) {
   # Calculate width ratio for each SKU to determine text size
   floor_data[, WidthRatio := (SubPosEnd_m - SubPosStart_m) / pos_width]
 
-  # Create label - shorter for narrow boxes
+  # Create label - shorter for narrow boxes (no frequency)
   floor_data[, Label := ifelse(WidthRatio >= 0.5,
-                                paste0(substr(PartNo, 1, 8), "\n", Frequency),
+                                substr(PartNo, 1, 10),
                                 ifelse(WidthRatio >= 0.3,
                                        substr(PartNo, 1, 6),
                                        substr(PartNo, 1, 4)))]
+
+  # Calculate daily frequency for coloring
+  floor_data[, DailyFreq := Frequency / 250]
 
   # Dynamic text size based on width
   floor_data[, TextSize := ifelse(WidthRatio >= 0.5, 2.0,
@@ -1040,9 +1112,9 @@ for (f in 1:5) {
     geom_rect(data = cab_markers, aes(xmin = PlotX - 0.5, xmax = PlotX + 0.5,
                                        ymin = PlotY - 0.4, ymax = PlotY + 0.4),
               fill = "gray95", color = "gray50", linewidth = 0.3) +
-    # SKU boxes
+    # SKU boxes (colored by daily frequency)
     geom_rect(data = floor_data, aes(xmin = PlotX, xmax = PlotXEnd,
-                                      ymin = PlotY - 0.35, ymax = PlotY + 0.35, fill = Frequency),
+                                      ymin = PlotY - 0.35, ymax = PlotY + 0.35, fill = DailyFreq),
               color = "black", linewidth = 0.3) +
     geom_text(data = floor_data, aes(x = (PlotX + PlotXEnd)/2, y = PlotY,
                                       label = Label, size = TextSize),
@@ -1071,7 +1143,7 @@ for (f in 1:5) {
     annotate("text", x = 1.5, y = 7.3, label = "Column 1", size = 3, fontface = "bold") +
     annotate("text", x = 6.5, y = 7.3, label = "Column 2", size = 3, fontface = "bold") +
     scale_size_identity() +
-    scale_fill_gradient(low = "steelblue", high = "red", name = "Frequency") +
+    scale_fill_gradient(low = "steelblue", high = "red", name = "Daily Picks") +
     scale_x_continuous(limits = c(-0.7, 11)) +
     scale_y_continuous(limits = c(-0.5, 7.8)) +
     labs(
