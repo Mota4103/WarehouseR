@@ -136,20 +136,29 @@ Average FPA Distance: ~6.5 m (mode)
 
 ## Process Logic
 
-### 1. Order Arrival Process
+### 1. Order Arrival Process (Using ACTUAL Timestamps)
 ```python
 def order_generator(env, pickers, pick_data, stats, scenario):
-    """Generate pick orders based on data"""
-    avg_interarrival = SIM_DURATION / len(pick_data)
+    """Generate pick orders based on ACTUAL arrival times from order data"""
 
-    for idx, row in pick_data.iterrows():
+    # Sort by actual arrival time
+    pick_data_sorted = pick_data.sort_values(['DeliveryHour', 'DeliveryMinute'])
+
+    # Get start time (first order's arrival)
+    start_time_min = first_hour * 60 + first_minute
+
+    for idx, row in pick_data_sorted.iterrows():
+        # Calculate actual arrival time from order data
+        arrival_time_min = (row['DeliveryHour'] * 60 + row['DeliveryMinute']) - start_time_min
+
+        # Wait until actual arrival time
+        yield env.timeout(wait_until)
+
+        # Create pick order process
         if scenario == 'before':
             env.process(pick_order_before_fpa(env, pickers, row, stats))
         else:
             env.process(pick_order_after_fpa(env, pickers, row, stats))
-
-        # Exponential inter-arrival (Poisson process)
-        yield env.timeout(random.expovariate(1 / avg_interarrival))
 ```
 
 ### 2. Before FPA Pick Process (with Search Time)
@@ -361,7 +370,7 @@ python Q4_Comparison_Simulation.py
 1. **Single shift simulation** (8 hours = 480 min)
 2. **Effective workers** = 40 × (8/9) due to 1-hour break
 3. **FIFO queue discipline** (no priority)
-4. **Exponential inter-arrival times** (Poisson process)
+4. **Actual arrival times** from order data (DeliveryHour, DeliveryMinute) - GIVEN DATA
 5. **Triangular distribution** for service times (stochastic)
 6. **No inventory constraints** (stockouts not modeled)
 7. **Single item per trip** (no batching)

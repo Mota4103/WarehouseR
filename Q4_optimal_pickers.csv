@@ -1,0 +1,3 @@
+Scenario,ServiceTime_min,MinPickers_100util,OptimalPickers_80util,Utilization_40pickers
+Before FPA,5.812756593105725,11.0,13.0,25.400535320915118
+After FPA,2.8866675739977077,6.0,7.0,12.614135909292068

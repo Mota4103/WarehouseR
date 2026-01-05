@@ -1,0 +1,9 @@
+Activity,Min,Mode,Max,Unit,Min_min,Mode_min,Max_min,Description
+Grasp_Carton,10.0,15.0,20.0,sec/carton,0.167,0.250,0.333,Grasp a carton from shelf
+Grasp_InnerBox,5.0,8.0,15.0,sec/box,0.083,0.133,0.250,Grasp an inner box or piece
+Scan,3.0,5.0,7.0,sec/trans,0.050,0.083,0.117,Barcode scanning
+Walk_Speed,1.0,1.5,2.5,m/sec,60.0,90.0,150.0,Walk with power pallet or picking cart (m/min)
+Start_Stop,8.0,12.0,15.0,sec/location,0.133,0.200,0.250,Start/stop power pallet or picking cart
+Stack_InnerBox,8.0,15.0,30.0,sec/line,0.133,0.250,0.500,Stack inner box or piece in carton
+Sort_Inside_Aisle,10.0,10.0,20.0,sec/line,0.167,0.167,0.333,Sort inner box or piece inside aisle
+Sort_Outside_Aisle,5.0,8.0,10.0,sec/box,0.083,0.133,0.167,Sort inner box outside aisle

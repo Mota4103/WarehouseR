@@ -408,22 +408,39 @@ for (i in 1:nrow(fpa_items)) {
 cat("  - Pattern pairs (LH/RH, A/B): ", nrow(pattern_pairs), "\n", sep="")
 
 # Co-occurrence Analysis
+# Group by ShippingDay + ReceivingLocation (items shipped together to same location)
 shipTrans[, ShippingDay := as.Date(as.character(ShippingDay), "%Y%m%d")]
-shipTrans_fpa <- shipTrans[PartNo %in% fpa_skus]
 
-delivery_col <- grep("DeliveryNo", names(shipTrans_fpa), value = TRUE)[1]
 pair_counts <- data.table()
 
-if (!is.null(delivery_col) && length(delivery_col) > 0) {
-  shipTrans_fpa[, BasketKey := paste(ShippingDay, get(delivery_col), sep = "_")]
+# Use ReceivingLocation if available, otherwise just ShippingDay
+if ("ReceivingLocation" %in% names(shipTrans)) {
+  shipTrans[, BasketKey := paste(ShippingDay, ReceivingLocation, sep = "_")]
+  cat("  - Grouping by: ShippingDay + ReceivingLocation\n")
+} else {
+  shipTrans[, BasketKey := as.character(ShippingDay)]
+  cat("  - Grouping by: ShippingDay only\n")
+}
 
-  baskets <- shipTrans_fpa[, .(Items = list(unique(PartNo))), by = BasketKey]
+# Group all items by basket, then filter to only FPA SKUs
+baskets <- shipTrans[, .(AllItems = list(unique(PartNo))), by = BasketKey]
+baskets[, FPAItems := lapply(AllItems, function(x) x[x %in% fpa_skus])]
+baskets[, ItemCount := sapply(FPAItems, length)]
 
-  # Count co-occurrences
-  cooc_list <- list()
-  for (b in 1:nrow(baskets)) {
-    items <- baskets$Items[[b]]
-    if (length(items) >= 2 && length(items) <= 30) {
+# Debug basket sizes
+cat("  - Total baskets: ", nrow(baskets), "\n", sep="")
+cat("  - Baskets with 2+ FPA items: ", sum(baskets$ItemCount >= 2), "\n", sep="")
+cat("  - FPA items per basket: min=", min(baskets$ItemCount),
+    ", median=", median(baskets$ItemCount), ", max=", max(baskets$ItemCount), "\n", sep="")
+
+# Count co-occurrences among FPA SKUs
+cooc_list <- list()
+valid_baskets <- baskets[ItemCount >= 2 & ItemCount <= 100]
+
+if (nrow(valid_baskets) > 0) {
+  for (b in 1:nrow(valid_baskets)) {
+    items <- valid_baskets$FPAItems[[b]]
+    if (length(items) >= 2) {
       pairs <- t(combn(sort(items), 2))
       cooc_list[[b]] <- data.table(Item1 = pairs[,1], Item2 = pairs[,2])
     }
@@ -434,14 +451,27 @@ if (!is.null(delivery_col) && length(delivery_col) > 0) {
     pair_counts <- cooc_pairs[, .(Count = .N), by = .(Item1, Item2)]
     setorder(pair_counts, -Count)
     cat("  - Co-occurrence pairs found: ", nrow(pair_counts), "\n", sep="")
+    cat("  - Top 10 co-occurrence pairs:\n")
+    print(head(pair_counts, 10))
   }
+} else {
+  cat("  - No baskets with 2+ FPA items\n")
 }
 
 # Combine association scores
 all_pairs <- unique(rbind(
   if (nrow(pattern_pairs) > 0) pattern_pairs[, .(Item1, Item2)] else data.table(),
-  if (nrow(pair_counts) > 0) pair_counts[Count >= 5, .(Item1, Item2)] else data.table()
+  if (nrow(pair_counts) > 0) pair_counts[Count >= 1, .(Item1, Item2)] else data.table()
 ))
+
+# Debug: show co-occurrence stats
+if (nrow(pair_counts) > 0) {
+  cat("  - Co-occurrence pairs with Count >= 1: ", nrow(pair_counts), "\n", sep="")
+  cat("  - Top 10 co-occurrence pairs:\n")
+  print(head(pair_counts, 10))
+} else {
+  cat("  - No co-occurrence pairs found in shipment data\n")
+}
 
 if (nrow(all_pairs) > 0) {
   all_pairs[, PatternScore := 0]
@@ -474,8 +504,10 @@ slotting[, AssociatedWith := ""]
 slotting[, AssociationGroup := 0L]
 
 # Create association groups (items that should be placed together)
+# Use only top 40 pairs for slotting
 if (nrow(all_pairs) > 0) {
-  top_pairs <- all_pairs[TotalScore >= 30]
+  setorder(all_pairs, -TotalScore)
+  top_pairs <- all_pairs[1:min(40, nrow(all_pairs))]
 
   # Build adjacency list
   adj_list <- list()
@@ -724,13 +756,13 @@ for (i in 1:nrow(slotting)) {
     }
   }
 
-  # PRIORITY 3: Standard algorithm (floor priority, closest cabinet first)
-  # Use cabinets_by_distance instead of sequential 1:24
+  # PRIORITY 3: Standard algorithm (cabinet/walking distance first, then floor)
+  # Use cabinets_by_distance as outer loop for walking distance priority
   if (!assigned) {
-    for (floor in floor_priority) {
+    for (cab in cabinets_by_distance) {
       if (assigned) break
 
-      for (cab in cabinets_by_distance) {
+      for (floor in floor_priority) {
         remaining <- position_remaining[cab, floor]
 
         if (remaining >= width_needed) {
@@ -874,7 +906,9 @@ output_cols <- intersect(output_cols, names(assigned_output))
 fwrite(assigned_output[, ..output_cols], "Q3_slotting_result.csv")
 cat("  - Saved: Q3_slotting_result.csv (", nrow(assigned_output), " SKUs)\n", sep="")
 
-fwrite(all_pairs, "Q3_association_pairs.csv")
+# Save top 40 association pairs by TotalScore
+setorder(all_pairs, -TotalScore)
+fwrite(all_pairs[1:min(40, nrow(all_pairs))], "Q3_association_pairs.csv")
 cat("  - Saved: Q3_association_pairs.csv\n")
 
 fwrite(position_summary, "Q3_position_utilization.csv")
