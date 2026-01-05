@@ -172,32 +172,92 @@ if (use_q2) {
 ### =========================
 cat("=== METHOD 2: COI (Cube-Per-Order Index) ===\n\n")
 
-# COI = Cube / Orders = D_i / f_i = Volume per pick
-# Lower COI → should be placed closer to I/O point (higher priority)
+# COI = Storage Space Required / Number of Orders (Picks)
+# From Heskett (1963) and Bartholdi & Hackman
+#
+# For storage space, we use: space needed to store average inventory
+# Assuming EOQ-like replenishment: avg inventory ∝ sqrt(demand)
+# Storage space ≈ k * sqrt(D_i) where D_i = annual demand volume
+#
+# COI_i = Storage_i / f_i = k * sqrt(D_i) / f_i
+#
+# Lower COI → high picks relative to storage → place closer to I/O
 
-sku_data[, COI := Volume / Freq]  # = CubM (volume per box)
+# Calculate proper COI
+# COI = Storage Cube / Activity = Box Volume / Daily Picks
+# This measures: how much space does this item need per pick?
+# Lower COI = less space per pick = should be placed in prime location
 
-# Sort by COI (lowest first = highest priority)
+# CubM = volume per box (m³)
+# Freq = annual picks
+# Daily picks = Freq / 250 (working days)
+# COI = CubM / (Freq / 250) = CubM × 250 / Freq
+
+sku_data[, COI := CubM * 250 / Freq]  # Cube per daily pick
+
+cat("COI Calculation (Heskett 1963 method):\n")
+cat("  - COI = Box Volume (m³) / Daily Picks\n")
+cat("  - COI = CubM × 250 / Annual Frequency\n")
+cat("  - Lower COI = less storage space per pick = higher priority\n\n")
+
+# Sort by COI (lowest first = highest priority for FPA)
 coi_sorted <- copy(sku_data)
 setorder(coi_sorted, COI)
 
-# For COI method, select same number of SKUs as Fluid Model for fair comparison
-n_coi <- n_fluid
+# Show COI distribution
+cat("COI Distribution (top 10 lowest COI - best for FPA):\n")
+print(coi_sorted[1:10, .(PartNo, Freq, CubM = round(CubM, 6),
+                          DailyPicks = round(Freq/250, 2),
+                          COI = round(COI, 6))])
+cat("\n")
 
+# For COI method: select items until storage capacity is full
+# Allocate storage proportionally to sqrt(demand) like fluid model for fair comparison
+# v_i = V × sqrt(D_i) / Σsqrt(D_j)
+
+# Find optimal n for COI by iterating
+coi_results <- data.table(n = 1:min(500, nrow(coi_sorted)), TotalBenefit = 0)
+
+for (i in 1:nrow(coi_results)) {
+  subset_coi <- coi_sorted[1:i]
+
+  # Allocate using sqrt-proportional (same as fluid for fair comparison)
+  sqrt_D <- sqrt(subset_coi$Volume)
+  sum_sqrt_D <- sum(sqrt_D)
+
+  if (sum_sqrt_D == 0) next
+
+  alloc_vol <- V_total * sqrt_D / sum_sqrt_D
+
+  # Benefit calculation
+  benefit <- s_param * subset_coi$Freq - Cr_param * (subset_coi$Volume / alloc_vol)
+  coi_results[i, TotalBenefit := sum(benefit)]
+}
+
+# Find peak benefit for COI
+n_coi_optimal <- coi_results[which.max(TotalBenefit), n]
+coi_benefit_optimal <- coi_results[which.max(TotalBenefit), TotalBenefit]
+
+cat("COI Optimal Selection:\n")
+cat("  - Optimal SKUs at peak: ", n_coi_optimal, "\n", sep="")
+cat("  - Maximum benefit: ", format(round(coi_benefit_optimal), big.mark=","), " min/year\n\n", sep="")
+
+# Use same number as fluid model for direct comparison
+n_coi <- n_fluid
 coi_skus <- coi_sorted[1:n_coi]
 
-# Allocate volume proportionally to demand (simple allocation)
-# v_i = V × D_i / ΣD_j
-total_demand <- sum(coi_skus$Volume)
-coi_skus[, AllocatedVolume_COI := V_total * Volume / total_demand]
+# Allocate volume using sqrt-proportional method (same as fluid)
+sqrt_D_coi <- sqrt(coi_skus$Volume)
+sum_sqrt_D_coi <- sum(sqrt_D_coi)
+coi_skus[, AllocatedVolume_COI := V_total * sqrt_D_coi / sum_sqrt_D_coi]
 
-# Calculate benefit for COI allocation
+# Calculate benefit for COI selection with same allocation
 coi_skus[, Benefit_COI := s_param * Freq - Cr_param * (Volume / AllocatedVolume_COI)]
 
 coi_benefit <- sum(coi_skus$Benefit_COI)
 
-cat("COI Method Results:\n")
-cat("  - SKUs selected: ", n_coi, " (same as Fluid Model)\n", sep="")
+cat("COI Method Results (same n as Fluid Model):\n")
+cat("  - SKUs selected: ", n_coi, "\n", sep="")
 cat("  - Total Benefit: ", format(round(coi_benefit, 2), big.mark=","), " min/year\n", sep="")
 cat("  - Total Frequency: ", format(sum(coi_skus$Freq), big.mark=","), " lines/year\n\n", sep="")
 
