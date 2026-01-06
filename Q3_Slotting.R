@@ -919,6 +919,41 @@ cat("  - Saved: Q3_position_utilization.csv\n")
 ### =========================
 cat("\nCreating visualizations...\n")
 
+# 0. BENEFIT vs NUMBER OF SKUs (showing optimal peak)
+cat("Creating Benefit vs SKUs visualization...\n")
+
+p_benefit <- ggplot(results, aes(x = n, y = TotalBenefit)) +
+  geom_line(color = "steelblue", linewidth = 1) +
+  geom_point(data = results[n == optimal_n], aes(x = n, y = TotalBenefit),
+             color = "red", size = 4, shape = 18) +
+  geom_vline(xintercept = optimal_n, linetype = "dashed", color = "red", alpha = 0.7) +
+  geom_hline(yintercept = max_benefit, linetype = "dashed", color = "gray50", alpha = 0.5) +
+  annotate("text", x = optimal_n + 5, y = max_benefit * 0.95,
+           label = paste0("Optimal: n = ", optimal_n, "\nBenefit = ",
+                          format(round(max_benefit), big.mark = ","), " min/year"),
+           hjust = 0, size = 4, color = "red", fontface = "bold") +
+  annotate("rect", xmin = optimal_n - 3, xmax = optimal_n + 3,
+           ymin = max_benefit * 0.97, ymax = max_benefit * 1.01,
+           fill = "yellow", alpha = 0.3) +
+  scale_y_continuous(labels = scales::comma) +
+  scale_x_continuous(breaks = seq(0, max(results$n), by = 50)) +
+  labs(
+    title = "Q3: Total Benefit vs Number of SKUs in FPA",
+    subtitle = paste0("Fluid Model with Physical Constraints | FPA Volume: ", round(V_fpa, 2), " m³ | ",
+                      "s = ", s, " min/pick | Cr = ", Cr, " min/trip"),
+    x = "Number of SKUs",
+    y = "Total Benefit (minutes saved per year)"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 14, face = "bold"),
+    plot.subtitle = element_text(size = 11, color = "gray40"),
+    panel.grid.minor = element_blank()
+  )
+
+ggsave("Q3_benefit_vs_skus.png", p_benefit, width = 12, height = 7, dpi = 150)
+cat("  - Saved: Q3_benefit_vs_skus.png\n")
+
 # Layout coordinates to match dataguide.md:
 #          Column 1              Column 2
 #         ___________    |      ___________
