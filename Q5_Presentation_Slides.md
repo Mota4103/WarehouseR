@@ -228,20 +228,20 @@ coi_benefit <- coi_benefit_by_n(coi_sorted, n_coi, V_total, s_param, Cr_param)
 
 | Method | SKUs Selected | Total Benefit | Benefit (hours/year) |
 |--------|--------------|---------------|---------------------|
-| **Fluid Model** | 159 | 294,977.64 min/year | 4,916.29 hrs/year |
-| **COI Method** | 159 | 294,949.18 min/year | 4,915.82 hrs/year |
-| **Difference** | - | 28.46 min/year | 0.47 hrs/year |
+| **Fluid Model** | 154 | 274,590.35 min/year | 4,576.51 hrs/year |
+| **COI Method** | 154 | 274,499.83 min/year | 4,575.00 hrs/year |
+| **Difference** | - | 90.51 min/year | 1.51 hrs/year |
 
 ## Percentage Improvement
 ```
-Fluid Model advantage = (294,977.64 - 294,949.18) / 294,949.18 × 100
-                      = 0.01%
+Fluid Model advantage = (274,590.35 - 274,499.83) / 274,499.83 × 100
+                      = 0.03%
 ```
 
 ## Key Finding
 **Both methods achieve nearly identical results!**
 
-The difference of 28 minutes/year (0.5 hours/year) is negligible.
+The difference of 90 minutes/year (1.5 hours/year) is negligible.
 
 ---
 
@@ -251,22 +251,24 @@ The difference of 28 minutes/year (0.5 hours/year) is negligible.
 
 | Metric | Value |
 |--------|-------|
-| Fluid Model SKUs | 159 |
-| COI Method SKUs | 159 |
-| **Common SKUs** | **157** (98.7%) |
-| Only in Fluid Model | 1 |
-| Only in COI | 1 |
+| Fluid Model SKUs | 154 |
+| COI Method SKUs | 154 |
+| **Common SKUs** | **152** (98.7%) |
+| Only in Fluid Model | 2 |
+| Only in COI | 2 |
 
-## The 2 Different SKUs
+## The 4 Different SKUs
 
 | PartNo | Selected By | Fluid Rank | COI Rank | Freq | TotalQty | Pieces/Pick |
 |--------|-------------|------------|----------|------|----------|-------------|
-| DN2069532 | Fluid Only | 106 | 280 | 75 | 3,750 | 50.0 |
-| DK5267C11 | COI Only | 161 | 157 | 393 | 198,000 | 503.8 |
+| DN2069532 | Fluid Only | 98 | 270 | 75 | 3,750 | 50.0 |
+| DN0366YR1 | Fluid Only | 119 | 166 | 171 | 20,700 | 121.1 |
+| G03168866B | COI Only | 163 | 151 | 188 | 198,802 | 1,057.5 |
+| 994790616 | COI Only | 155 | 154 | 184 | 183,986 | 999.9 |
 
 ## Why the Difference?
-- **DN2069532**: Low frequency (75) but high pieces per pick → Higher viscosity due to lower volume flow
-- **DK5267C11**: High frequency (393) with very high qty/pick → Lower viscosity due to high volume flow
+- **Fluid Model picks**: Low frequency but moderate pieces/pick → Higher viscosity due to lower volume flow
+- **COI picks**: Higher frequency with very high qty/pick → Lower viscosity due to high volume flow
 
 ---
 
@@ -276,7 +278,7 @@ The difference of 28 minutes/year (0.5 hours/year) is negligible.
 
 ## Interpretation
 - Both curves follow nearly identical paths
-- Peak benefit at n = 159 SKUs for both methods
+- Peak benefit at n = 154 SKUs for Fluid Model, n = 153 for COI
 - Fluid Model slightly higher at every n
 
 ## Code for Visualization
@@ -318,9 +320,9 @@ The difference is HOW they weight these factors.
 ![Selection Comparison](Q5_selection_comparison.png)
 
 ## Color Coding
-- **Purple (Both)**: Selected by both methods (157 SKUs)
-- **Blue (Fluid Only)**: Selected only by Fluid Model (1 SKU)
-- **Red (COI Only)**: Selected only by COI (1 SKU)
+- **Purple (Both)**: Selected by both methods (152 SKUs)
+- **Blue (Fluid Only)**: Selected only by Fluid Model (2 SKUs)
+- **Red (COI Only)**: Selected only by COI (2 SKUs)
 
 ## Pattern
 - High-frequency, small-box SKUs are selected by both
@@ -386,8 +388,8 @@ So Viscosity ranking ≈ sqrt(Freq) ranking, which correlates with 1/COI ranking
 ## What This Comparison Reveals
 
 ### 1. For SKU SELECTION, COI works nearly as well as Fluid Model
-- 98.7% overlap in selected SKUs
-- 0.01% difference in total benefit
+- 98.7% overlap in selected SKUs (152 of 154)
+- 0.03% difference in total benefit (90 min/year)
 
 ### 2. The real power of Fluid Model is OPTIMAL ALLOCATION
 ```
@@ -431,12 +433,12 @@ For practical implementation:
 
 | Metric | Fluid Model | COI Method | Difference |
 |--------|-------------|------------|------------|
-| SKUs Selected | 159 | 159 | 0 |
-| Total Benefit (min/year) | 294,977.64 | 294,949.18 | 28.46 |
-| Total Benefit (hrs/year) | 4,916.29 | 4,915.82 | 0.47 |
-| Improvement | - | - | 0.01% |
-| Common SKUs | 157 | 157 | 98.7% |
-| Unique SKUs | 1 | 1 | - |
+| SKUs Selected | 154 | 154 | 0 |
+| Total Benefit (min/year) | 274,590.35 | 274,499.83 | 90.51 |
+| Total Benefit (hrs/year) | 4,576.51 | 4,575.00 | 1.51 |
+| Improvement | - | - | 0.03% |
+| Common SKUs | 152 | 152 | 98.7% |
+| Unique SKUs | 2 | 2 | - |
 
 ## Computational Comparison
 
@@ -483,8 +485,8 @@ fwrite(comparison, "Q5_Comparison_Summary.csv")
 ## Key Findings
 
 ### 1. Both Methods Produce Nearly Identical SKU Selection
-- 98.7% overlap (157 of 159 SKUs)
-- Only 0.01% difference in total benefit
+- 98.7% overlap (152 of 154 SKUs)
+- Only 0.03% difference in total benefit (90 min/year = 1.5 hrs/year)
 
 ### 2. The Real Value of Fluid Model is Optimal Allocation
 - The allocation formula v* = V × sqrt(D) / Σsqrt(D) is the key
@@ -521,8 +523,10 @@ For practical FPA design:
 
 ## Data Sources
 - **shipTrans.txt**: Transaction data (Freq, TotalQty)
+  - Filtered: Excludes flood period (Oct-Nov 2011) and Sundays
+  - 544,362 transactions after filtering (same as Q2)
 - **itemMaster.txt**: Item dimensions (CubM, UnitLabelQt)
-- **Q2 FPA Results**: Fluid Model implementation
+- **Q2 FPA Results**: Fluid Model implementation (154 SKUs, 274,590 min/year)
 
 ---
 

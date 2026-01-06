@@ -40,111 +40,47 @@ Cr_param <- 15.0 # Replenishment time (min/trip)
 ### =========================
 cat("Loading data...\n")
 
-# Always recalculate both methods for fair comparison
-use_q2 <- FALSE
-cat("  - Recalculating both methods from scratch for fair comparison\n")
+# Use DataFreq.csv (same as Q2) for consistency
+cat("  - Loading from DataFreq.csv (same data as Q2)\n")
 
-# Load raw data for COI calculation
-shipTrans <- fread("shipTrans.txt", sep = ",", header = TRUE)
+if (!file.exists("DataFreq.csv")) {
+  stop("DataFreq.csv not found. Please run Freq.R first.")
+}
+
+sku_data <- fread("DataFreq.csv")
+cat("  - Loaded ", nrow(sku_data), " SKUs from DataFreq.csv\n", sep="")
+
+# Load itemMaster for CubM (needed for COI calculation)
 itemMaster <- fread("itemMaster.txt", sep = ",", header = TRUE)
-
-setnames(shipTrans, names(shipTrans), gsub("[ .]", "", names(shipTrans)))
 setnames(itemMaster, names(itemMaster), gsub("[ .]", "", names(itemMaster)))
 
-# IMPORTANT: Apply same filtering as Freq.R (used by Q2) for fair comparison
-# Filter out flood period (Oct-Nov 2011) and Sundays
-shipTrans[, ShippingDate := as.Date(as.character(as.integer(ShippingDay)), format="%Y%m%d")]
-shipTrans[, YearMonth := as.integer(format(ShippingDate, "%Y%m"))]
-shipTrans[, DayOfWeek := weekdays(ShippingDate)]
+old_names <- names(itemMaster)[1:9]
+new_names <- c("Skus", "PartNo", "PartName", "BoxType", "UnitLabelQt",
+               "ModuleSizeL", "ModuleSizeV", "ModuleSizeH", "CubM")
+setnames(itemMaster, old_names, new_names)
 
-n_before <- nrow(shipTrans)
-shipTrans <- shipTrans[!YearMonth %in% c(201110, 201111)]  # Remove flood period
-shipTrans <- shipTrans[DayOfWeek != "Sunday"]              # Remove Sundays
-n_after <- nrow(shipTrans)
-
-cat("  - Transactions before filtering: ", format(n_before, big.mark=","), "\n", sep="")
-cat("  - Transactions after filtering (no flood, no Sunday): ", format(n_after, big.mark=","), "\n", sep="")
-
-if ("PartNo" %in% names(itemMaster) == FALSE) {
-  old_names <- names(itemMaster)[1:9]
-  new_names <- c("Skus", "PartNo", "PartName", "BoxType", "UnitLabelQt",
-                 "ModuleSizeL", "ModuleSizeV", "ModuleSizeH", "CubM")
-  setnames(itemMaster, old_names, new_names)
-}
-
-if ("Partname" %in% names(itemMaster)) {
-  setnames(itemMaster, "Partname", "PartName", skip_absent = TRUE)
-}
-if ("Boxtype" %in% names(itemMaster)) {
-  setnames(itemMaster, "Boxtype", "BoxType", skip_absent = TRUE)
-}
-
-itemMaster[, ModuleSizeL := as.numeric(gsub(",", "", ModuleSizeL))]
-itemMaster[, ModuleSizeV := as.numeric(gsub(",", "", ModuleSizeV))]
-itemMaster[, ModuleSizeH := as.numeric(gsub(",", "", ModuleSizeH))]
 itemMaster[, CubM := as.numeric(gsub(",", "", CubM))]
 itemMaster[, UnitLabelQt := as.numeric(gsub(",", "", UnitLabelQt))]
+itemMaster[, PartNo := gsub("[ ]", "", PartNo)]
 
-itemMaster[, L_m := ModuleSizeL / 1000]
-itemMaster[, W_m := ModuleSizeV / 1000]
-itemMaster[, H_m := ModuleSizeH / 1000]
-
-# Filter small parts
-filtered_SKUs <- itemMaster[H_m < 1.5 & (L_m < 0.68 | W_m < 0.68)]
-
-shipTrans[, PartNo := gsub("[ ]", "", PartNo)]
-filtered_SKUs[, PartNo := gsub("[ ]", "", PartNo)]
-
-shipTrans_small <- shipTrans[PartNo %in% filtered_SKUs$PartNo]
-shipTrans_small <- shipTrans_small[!is.na(PartNo) & PartNo != ""]
-
-cat("  - Small parts transactions: ", format(nrow(shipTrans_small), big.mark=","), "\n\n", sep="")
-
-### =========================
-### STEP 2: Calculate Frequency and Volume
-### =========================
-cat("Calculating frequency and volume...\n")
-
-sku_data <- shipTrans_small[, .(
-  Freq = .N,
-  TotalQty = sum(ScanQty, na.rm = TRUE)
-), by = PartNo]
-
-sku_data <- merge(
-  sku_data,
-  filtered_SKUs[, .(PartNo, PartName, CubM, ModuleSizeL, ModuleSizeV, ModuleSizeH, UnitLabelQt)],
-  by = "PartNo",
-  all.x = TRUE
-)
+# Merge CubM into sku_data for COI calculation
+sku_data <- merge(sku_data, itemMaster[, .(PartNo, CubM, UnitLabelQt)], by = "PartNo", all.x = TRUE)
 
 sku_data <- sku_data[!is.na(CubM) & CubM > 0 & !is.na(UnitLabelQt) & UnitLabelQt > 0]
 
-# CORRECT Volume calculation (from Freq.R):
+# Volume is already calculated in DataFreq.csv by Freq.R:
 # Volume (D) = TotalQty × (CubM / UnitLabelQt) = total volume flow per year
-# This is DIFFERENT from Freq × CubM!
-sku_data[, VolumePerPiece := CubM / UnitLabelQt]
-sku_data[, Volume := TotalQty * VolumePerPiece]  # D_i = flow = annual demand volume (m^3/year)
+# Viscosity is also already calculated: Viscosity = Freq / sqrt(Volume)
 
 cat("  - SKUs with complete data: ", nrow(sku_data), "\n\n", sep="")
 
 ### =========================
-### STEP 3: METHOD 1 - Fluid Model
+### STEP 2: METHOD 1 - Fluid Model
 ### =========================
 cat("=== METHOD 1: FLUID MODEL ===\n")
 cat("(Selection + Optimal Allocation)\n\n")
 
-if (use_q2) {
-  # Use Q2 results
-  n_fluid <- nrow(fluid_skus)
-  fluid_benefit <- sum(fluid_skus$Benefit)
-
-  cat("Results from Q2:\n")
-  cat("  - SKUs selected: ", n_fluid, "\n", sep="")
-  cat("  - Total Benefit: ", format(round(fluid_benefit, 2), big.mark=","), " min/year\n", sep="")
-  cat("  - Total Frequency: ", format(sum(fluid_skus$Frequency), big.mark=","), " lines/year\n\n", sep="")
-
-} else {
-  # Recalculate Fluid Model with correct formulas
+# Calculate Fluid Model (same as Q2)
 
   # Viscosity = Freq / sqrt(Volume) where Volume = D_i = flow
   sku_data[, Viscosity := Freq / sqrt(Volume)]
@@ -197,12 +133,11 @@ if (use_q2) {
   sum_sqrt_D <- sum(sqrt_D)
   fluid_skus[, AllocatedVolume_m3 := V_total * sqrt_D / sum_sqrt_D]
   fluid_skus[, Benefit := s_param * Freq - Cr_param * (Volume / AllocatedVolume_m3)]
-  fluid_skus[, Frequency := Freq]
-  fluid_skus[, DemandVolume_m3 := Volume]
-}
+fluid_skus[, Frequency := Freq]
+fluid_skus[, DemandVolume_m3 := Volume]
 
 ### =========================
-### STEP 4: METHOD 2 - COI-Based Selection
+### STEP 3: METHOD 2 - COI-Based Selection
 ### =========================
 cat("=== METHOD 2: COI-BASED SELECTION ===\n")
 cat("(Using COI for selection, not just location assignment)\n\n")
@@ -306,11 +241,7 @@ hours_saved <- benefit_diff / 60
 cat("Fluid Model saves ", round(hours_saved, 2), " hours/year more than COI selection\n\n", sep="")
 
 # SKU overlap analysis
-if (use_q2) {
-  fluid_parts <- fluid_skus$PartNo
-} else {
-  fluid_parts <- fluid_skus$PartNo
-}
+fluid_parts <- fluid_skus$PartNo
 coi_parts <- coi_skus$PartNo
 
 overlap <- length(intersect(fluid_parts, coi_parts))
@@ -465,7 +396,7 @@ cat("    v* = V × sqrt(D) / Σsqrt(D)\n\n")
 
 # Show difference in rankings
 cat("Ranking Comparison (top 20):\n")
-fluid_ranking <- if(use_q2) fluid_skus[1:20, .(PartNo, Rank = 1:20)] else sku_data[1:20, .(PartNo, Rank = 1:20)]
+fluid_ranking <- sku_data[1:20, .(PartNo, Rank = 1:20)]
 coi_ranking <- coi_sorted[1:20, .(PartNo, Rank = 1:20)]
 
 rank_compare <- merge(fluid_ranking, coi_ranking, by = "PartNo", suffixes = c("_Fluid", "_COI"), all = TRUE)
@@ -487,12 +418,8 @@ fwrite(coi_skus[, .(PartNo, Freq, Volume, COI, AllocatedVolume_COI, Benefit_COI)
        "Q5_COI_SKUs.csv")
 
 # Save Fluid Model SKUs
-if (use_q2) {
-  fwrite(fluid_skus, "Q5_FluidModel_SKUs.csv")
-} else {
-  fwrite(fluid_skus[, .(PartNo, Freq, Volume, Viscosity, AllocatedVolume_m3, Benefit)],
-         "Q5_FluidModel_SKUs.csv")
-}
+fwrite(fluid_skus[, .(PartNo, Freq, Volume, Viscosity, AllocatedVolume_m3, Benefit)],
+       "Q5_FluidModel_SKUs.csv")
 
 # Save comparison summary
 comparison <- data.table(
@@ -594,7 +521,7 @@ cat("  - Saved: Q5_ranking_comparison.png\n")
 
 # Plot 3: Benefit Distribution
 plot_data_dist <- rbind(
-  data.table(Method = "Fluid Model", Benefit = if(use_q2) fluid_skus$Benefit else fluid_skus$Benefit),
+  data.table(Method = "Fluid Model", Benefit = fluid_skus$Benefit),
   data.table(Method = "COI", Benefit = coi_skus$Benefit_COI)
 )
 

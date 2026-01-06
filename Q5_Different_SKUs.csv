@@ -1,5 +1,1 @@
-PartNo,Selected_By,Fluid_Rank,COI_Rank,Freq,TotalQty,PiecesPerPick,CubM,UnitLabelQt,Viscosity,COI,Volume_m3_year
-DN2069532,Fluid Model Only,98,270,75,3750,50,0.004032,200,272.77,5.376e-05,0.0756
-DN0366YR1,Fluid Model Only,119,166,171,20700,121.05,0.004032,180,251.12,2.358e-05,0.4637
-G03168866B,COI Only,163,151,188,198802,1057.46,0.004032,1000,209.98,2.145e-05,0.8016
-994790616,COI Only,155,154,184,183986,999.92,0.004032,1000,213.63,2.191e-05,0.7418
+PartNo,Selected_By,Fluid_Rank,COI_Rank,Freq,PiecesPerPick,CubM,UnitLabelQt,Viscosity,COI,Volume_m3_year
