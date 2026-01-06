@@ -1,0 +1,3 @@
+PartNo,Selected_By,Fluid_Rank,COI_Rank,Freq,TotalQty,PiecesPerPick,CubM,UnitLabelQt,Viscosity,COI,Volume_m3_year
+DN2069532,Fluid Model Only,106,280,75,3750,50,0.004032,200,272.77,5.376e-05,0.0756
+DK5267C11,COI Only,161,157,393,198000,503.82,0.008064,500,219.92,2.052e-05,3.1933
