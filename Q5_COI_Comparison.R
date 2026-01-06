@@ -51,6 +51,20 @@ itemMaster <- fread("itemMaster.txt", sep = ",", header = TRUE)
 setnames(shipTrans, names(shipTrans), gsub("[ .]", "", names(shipTrans)))
 setnames(itemMaster, names(itemMaster), gsub("[ .]", "", names(itemMaster)))
 
+# IMPORTANT: Apply same filtering as Freq.R (used by Q2) for fair comparison
+# Filter out flood period (Oct-Nov 2011) and Sundays
+shipTrans[, ShippingDate := as.Date(as.character(as.integer(ShippingDay)), format="%Y%m%d")]
+shipTrans[, YearMonth := as.integer(format(ShippingDate, "%Y%m"))]
+shipTrans[, DayOfWeek := weekdays(ShippingDate)]
+
+n_before <- nrow(shipTrans)
+shipTrans <- shipTrans[!YearMonth %in% c(201110, 201111)]  # Remove flood period
+shipTrans <- shipTrans[DayOfWeek != "Sunday"]              # Remove Sundays
+n_after <- nrow(shipTrans)
+
+cat("  - Transactions before filtering: ", format(n_before, big.mark=","), "\n", sep="")
+cat("  - Transactions after filtering (no flood, no Sunday): ", format(n_after, big.mark=","), "\n", sep="")
+
 if ("PartNo" %in% names(itemMaster) == FALSE) {
   old_names <- names(itemMaster)[1:9]
   new_names <- c("Skus", "PartNo", "PartName", "BoxType", "UnitLabelQt",
